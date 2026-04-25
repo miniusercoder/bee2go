@@ -2,6 +2,8 @@ package bee2go
 
 import (
 	"bytes"
+	"fmt"
+	"sync"
 	"testing"
 )
 
@@ -75,39 +77,78 @@ func TestBakeBSTSRoundTrip(t *testing.T) {
 	}
 	defer stB.Free()
 
-	// ── Protocol flow ──────────────────────────────────────────────────────
-	//   B → A: M1  (B's ephemeral point)
-	//   A → B: M2  (A's ephemeral point + A's cert + A's key confirm)
-	//   B → A: M3  (B's cert + B's key confirm, validates A's cert)
-	//   A:          validates B's cert (Step5)
+	// ── Protocol flow with two concurrent parties ──────────────────────────
+	//   B goroutine: Step2 -> recv M2 -> Step4 -> StepG
+	//   A goroutine: recv M1 -> Step3 -> recv M3 -> Step5 -> StepG
+	m1Ch := make(chan []byte, 1)
+	m2Ch := make(chan []byte, 1)
+	m3Ch := make(chan []byte, 1)
+	keyACh := make(chan []byte, 1)
+	keyBCh := make(chan []byte, 1)
+	errCh := make(chan error, 2)
 
-	m1, err := stB.Step2()
-	if err != nil {
-		t.Fatal("Step2:", err)
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		m1, err := stB.Step2()
+		if err != nil {
+			errCh <- fmt.Errorf("Step2: %w", err)
+			return
+		}
+		m1Ch <- m1
+
+		m2 := <-m2Ch
+		m3, err := stB.Step4(m2, valFn)
+		if err != nil {
+			errCh <- fmt.Errorf("Step4: %w", err)
+			return
+		}
+		m3Ch <- m3
+
+		keyB, err := stB.StepG()
+		if err != nil {
+			errCh <- fmt.Errorf("StepG B: %w", err)
+			return
+		}
+		keyBCh <- keyB
+	}()
+
+	go func() {
+		defer wg.Done()
+		m1 := <-m1Ch
+		m2, err := stA.Step3(m1)
+		if err != nil {
+			errCh <- fmt.Errorf("Step3: %w", err)
+			return
+		}
+		m2Ch <- m2
+
+		m3 := <-m3Ch
+		if err := stA.Step5(m3, valFn); err != nil {
+			errCh <- fmt.Errorf("Step5: %w", err)
+			return
+		}
+
+		keyA, err := stA.StepG()
+		if err != nil {
+			errCh <- fmt.Errorf("StepG A: %w", err)
+			return
+		}
+		keyACh <- keyA
+	}()
+
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	m2, err := stA.Step3(m1)
-	if err != nil {
-		t.Fatal("Step3:", err)
-	}
-
-	m3, err := stB.Step4(m2, valFn)
-	if err != nil {
-		t.Fatal("Step4:", err)
-	}
-
-	if err := stA.Step5(m3, valFn); err != nil {
-		t.Fatal("Step5:", err)
-	}
-
-	keyA, err := stA.StepG()
-	if err != nil {
-		t.Fatal("StepG A:", err)
-	}
-	keyB, err := stB.StepG()
-	if err != nil {
-		t.Fatal("StepG B:", err)
-	}
+	keyA := <-keyACh
+	keyB := <-keyBCh
 
 	if !bytes.Equal(keyA, keyB) {
 		t.Fatalf("session keys differ:\nA: %X\nB: %X", keyA, keyB)

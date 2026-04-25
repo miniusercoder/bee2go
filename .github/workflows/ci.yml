@@ -22,14 +22,16 @@ jobs:
         with:
           go-version: "1.22"
 
-      - name: Install cmake
-        run: sudo apt-get install -y cmake
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake make
 
-      - name: Build bee2 static library
-        run: bash scripts/build_bee2.sh
+      - name: Prepare project
+        run: make setup
 
       - name: go vet
         run: go vet ./...
 
       - name: Run tests
-        run: go test ./... -v -count=1
+        run: make test
