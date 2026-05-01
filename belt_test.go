@@ -370,9 +370,9 @@ func TestBeltHMACKAT(t *testing.T) {
 	H := beltHBytes()
 
 	tests := []struct {
-		keyStart, keyEnd int
+		keyStart, keyEnd   int
 		dataStart, dataEnd int
-		want string
+		want               string
 	}{
 		// Б.1-1: key=H[128:128+29], data=H[192:224]
 		{128, 128 + 29, 192, 224,
