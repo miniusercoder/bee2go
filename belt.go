@@ -543,6 +543,44 @@ func BeltPBKDF2(password []byte, iter int, salt []byte) ([]byte, error) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// belt-KRP (STB 34.101.31 §7.3)
+// ────────────────────────────────────────────────────────────────────────────
+
+// BeltKRP transforms src key of length n into dest key of length m.
+// level must be 12 bytes, header must be 16 bytes.
+func BeltKRP(src []byte, level, header []byte, m int) ([]byte, error) {
+	n := len(src)
+	if n != 16 && n != 24 && n != 32 {
+		return nil, errors.New("bee2: belt-KRP src key must be 16, 24, or 32 bytes")
+	}
+	if m != 16 && m != 24 && m != 32 {
+		return nil, errors.New("bee2: belt-KRP dest key must be 16, 24, or 32 bytes")
+	}
+	if m > n {
+		return nil, errors.New("bee2: belt-KRP m must be <= n")
+	}
+	if len(level) != 12 {
+		return nil, errors.New("bee2: belt-KRP level must be 12 bytes")
+	}
+	if len(header) != 16 {
+		return nil, errors.New("bee2: belt-KRP header must be 16 bytes")
+	}
+	dest := make([]byte, m)
+	rc := C.beltKRP(
+		(*C.octet)(unsafe.Pointer(&dest[0])),
+		C.size_t(m),
+		(*C.octet)(unsafe.Pointer(&src[0])),
+		C.size_t(n),
+		(*C.octet)(unsafe.Pointer(&level[0])),
+		(*C.octet)(unsafe.Pointer(&header[0])),
+	)
+	if rc != 0 {
+		return nil, errors.New("bee2: beltKRP failed")
+	}
+	return dest, nil
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 // ────────────────────────────────────────────────────────────────────────────
 
