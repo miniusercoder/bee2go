@@ -228,6 +228,85 @@ func TestBakeBSTSSessionKeysAreRandom(t *testing.T) {
 	}
 }
 
+func TestBakeBPACERoundTrip(t *testing.T) {
+	params, err := NewBignParams256v1()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer params.Free()
+
+	rngFn := BakeDefaultRNG()
+	settingsA, err := NewBakeSettings(true, true, nil, nil, rngFn, nil)
+	if err != nil {
+		t.Fatal("NewBakeSettings A:", err)
+	}
+	defer settingsA.Free()
+	settingsB, err := NewBakeSettings(true, true, nil, nil, rngFn, nil)
+	if err != nil {
+		t.Fatal("NewBakeSettings B:", err)
+	}
+	defer settingsB.Free()
+
+	password := bytes.Repeat([]byte{0x42}, 32)
+	stA, err := NewBakeBPACE(128, params, settingsA, password)
+	if err != nil {
+		t.Fatal("NewBakeBPACE A:", err)
+	}
+	defer stA.Free()
+	stB, err := NewBakeBPACE(128, params, settingsB, password)
+	if err != nil {
+		t.Fatal("NewBakeBPACE B:", err)
+	}
+	defer stB.Free()
+
+	m1, err := stB.Step2()
+	if err != nil {
+		t.Fatal("Step2:", err)
+	}
+	if len(m1) != 16 {
+		t.Fatalf("M1 length = %d, want 16", len(m1))
+	}
+	m2, err := stA.Step3(m1)
+	if err != nil {
+		t.Fatal("Step3:", err)
+	}
+	if len(m2) != 80 {
+		t.Fatalf("M2 length = %d, want 80", len(m2))
+	}
+	m3, err := stB.Step4(m2)
+	if err != nil {
+		t.Fatal("Step4:", err)
+	}
+	if len(m3) != 72 {
+		t.Fatalf("M3 length = %d, want 72", len(m3))
+	}
+	m4, err := stA.Step5(m3)
+	if err != nil {
+		t.Fatal("Step5:", err)
+	}
+	if len(m4) != 8 {
+		t.Fatalf("M4 length = %d, want 8", len(m4))
+	}
+	if err := stB.Step6(m4); err != nil {
+		t.Fatal("Step6:", err)
+	}
+
+	keyA, err := stA.StepG()
+	if err != nil {
+		t.Fatal("StepG A:", err)
+	}
+	keyB, err := stB.StepG()
+	if err != nil {
+		t.Fatal("StepG B:", err)
+	}
+	if !bytes.Equal(keyA, keyB) {
+		t.Fatalf("session keys differ:\nA: %X\nB: %X", keyA, keyB)
+	}
+	if bytes.Equal(keyA, make([]byte, 32)) {
+		t.Fatal("session key is all zeros")
+	}
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Argument validation
 // ────────────────────────────────────────────────────────────────────────────

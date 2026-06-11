@@ -310,3 +310,172 @@ func (b *BakeBSTS) StepG() ([]byte, error) {
 	}
 	return key, nil
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// BakeBPACE
+// ────────────────────────────────────────────────────────────────────────────
+
+// BakeBPACE wraps the BPACE password-authenticated key-establishment protocol
+// state (СТБ 34.101.66, algorithm BPACE).
+//
+// Protocol flow:
+//
+//	B: m1 = Step2()                 → send M1 →
+//	                                  A: m2 = Step3(m1)
+//	                                  ← send M2 ←
+//	B: m3 = Step4(m2)               → send M3 →
+//	                                  A: m4 = Step5(m3)
+//	                                  ← send M4 ←
+//	B: Step6(m4)
+//	A/B: key = StepG()
+type BakeBPACE struct {
+	state unsafe.Pointer
+	l     int
+	kca   bool
+	kcb   bool
+}
+
+// NewBakeBPACE initialises one BPACE party.
+// l is the security level in bits (128, 192, or 256).
+func NewBakeBPACE(l int, params *BignParams, settings *BakeSettings, password []byte) (*BakeBPACE, error) {
+	if params == nil || settings == nil {
+		return nil, errors.New("bee2: params and settings must not be nil")
+	}
+	if l != 128 && l != 192 && l != 256 {
+		return nil, errors.New("bee2: unsupported BPACE security level")
+	}
+	if len(password) == 0 {
+		return nil, errors.New("bee2: BPACE password is empty")
+	}
+
+	state := C.malloc(C.size_t(C.bakeBPACE_keep(C.size_t(l))))
+	if state == nil {
+		return nil, errors.New("bee2: failed to allocate bakeBPACE state")
+	}
+	rc := C.bakeBPACEStart(
+		state,
+		params.params,
+		settings.settings,
+		(*C.octet)(unsafe.Pointer(&password[0])),
+		C.size_t(len(password)),
+	)
+	if rc != 0 {
+		C.free(state)
+		return nil, errors.New("bee2: bakeBPACEStart failed")
+	}
+	return &BakeBPACE{
+		state: state,
+		l:     l,
+		kca:   settings.settings.kca != 0,
+		kcb:   settings.settings.kcb != 0,
+	}, nil
+}
+
+// Free releases the underlying C state.
+func (b *BakeBPACE) Free() {
+	if b.state != nil {
+		C.free(b.state)
+		b.state = nil
+	}
+}
+
+// Step2 is called by party B to produce M1 (l/8 bytes).
+func (b *BakeBPACE) Step2() ([]byte, error) {
+	out := make([]byte, b.l/8)
+	if rc := C.bakeBPACEStep2((*C.octet)(unsafe.Pointer(&out[0])), b.state); rc != 0 {
+		return nil, errors.New("bee2: bakeBPACEStep2 failed")
+	}
+	return out, nil
+}
+
+// Step3 is called by party A: processes M1 and produces M2 (5*l/8 bytes).
+func (b *BakeBPACE) Step3(in []byte) ([]byte, error) {
+	if len(in) != b.l/8 {
+		return nil, errors.New("bee2: BPACE M1 has invalid length")
+	}
+	out := make([]byte, 5*b.l/8)
+	if rc := C.bakeBPACEStep3(
+		(*C.octet)(unsafe.Pointer(&out[0])),
+		(*C.octet)(unsafe.Pointer(&in[0])),
+		b.state,
+	); rc != 0 {
+		return nil, errors.New("bee2: bakeBPACEStep3 failed")
+	}
+	return out, nil
+}
+
+// Step4 is called by party B: processes M2 and produces M3.
+// Output size is l/2 bytes plus 8 bytes when party B confirms the key.
+func (b *BakeBPACE) Step4(in []byte) ([]byte, error) {
+	if len(in) != 5*b.l/8 {
+		return nil, errors.New("bee2: BPACE M2 has invalid length")
+	}
+	outLen := b.l / 2
+	if b.kcb {
+		outLen += 8
+	}
+	out := make([]byte, outLen)
+	if rc := C.bakeBPACEStep4(
+		(*C.octet)(unsafe.Pointer(&out[0])),
+		(*C.octet)(unsafe.Pointer(&in[0])),
+		b.state,
+	); rc != 0 {
+		return nil, errors.New("bee2: bakeBPACEStep4 failed")
+	}
+	return out, nil
+}
+
+// Step5 is called by party A: processes M3 and produces M4 when party A
+// confirms the key.
+func (b *BakeBPACE) Step5(in []byte) ([]byte, error) {
+	inLen := b.l / 2
+	if b.kcb {
+		inLen += 8
+	}
+	if len(in) != inLen {
+		return nil, errors.New("bee2: BPACE M3 has invalid length")
+	}
+	outLen := 0
+	if b.kca {
+		outLen = 8
+	}
+	out := make([]byte, outLen)
+	var outPtr *C.octet
+	if len(out) > 0 {
+		outPtr = (*C.octet)(unsafe.Pointer(&out[0]))
+	}
+	if rc := C.bakeBPACEStep5(
+		outPtr,
+		(*C.octet)(unsafe.Pointer(&in[0])),
+		b.state,
+	); rc != 0 {
+		return nil, errors.New("bee2: bakeBPACEStep5 failed")
+	}
+	return out, nil
+}
+
+// Step6 is called by party B to verify M4 when party A confirms the key.
+func (b *BakeBPACE) Step6(in []byte) error {
+	if !b.kca {
+		if len(in) == 0 {
+			return nil
+		}
+		return errors.New("bee2: BPACE M4 supplied when kca is disabled")
+	}
+	if len(in) != 8 {
+		return errors.New("bee2: BPACE M4 has invalid length")
+	}
+	if rc := C.bakeBPACEStep6((*C.octet)(unsafe.Pointer(&in[0])), b.state); rc != 0 {
+		return errors.New("bee2: bakeBPACEStep6 failed")
+	}
+	return nil
+}
+
+// StepG extracts the 32-byte shared key after the protocol completes.
+func (b *BakeBPACE) StepG() ([]byte, error) {
+	key := make([]byte, 32)
+	if rc := C.bakeBPACEStepG((*C.octet)(unsafe.Pointer(&key[0])), b.state); rc != 0 {
+		return nil, errors.New("bee2: bakeBPACEStepG failed")
+	}
+	return key, nil
+}
