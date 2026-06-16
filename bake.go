@@ -43,7 +43,14 @@ static err_t bsts_step5_wrap(
 // bake_urandom is a gen_i that reads random bytes from /dev/urandom.
 static void bake_urandom(void* buf, size_t count, void* state) {
 	FILE* f = fopen("/dev/urandom", "rb");
-	if (f) { fread(buf, 1, count, f); fclose(f); }
+	if (f) {
+		size_t got = fread(buf, 1, count, f);
+		fclose(f);
+		// /dev/urandom does not short-read in practice; zero any shortfall so
+		// the gen_i contract (all count octets produced) still holds.
+		if (got < count)
+			memset((octet*)buf + got, 0, count - got);
+	}
 }
 
 // accept_all_certval is a bake_certval_i that accepts any certificate whose

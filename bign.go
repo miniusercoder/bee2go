@@ -5,6 +5,7 @@ package bee2go
 #cgo LDFLAGS: -L${SRCDIR}/bee2/build/src -lbee2_static
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include "bee2/crypto/bign.h"
 
 // urandom_gen is a gen_i that reads from /dev/urandom. Declared here as a
@@ -13,7 +14,14 @@ package bee2go
 // pointer, so we use this C-side generator for all randomised operations.
 void urandom_gen(void* buf, size_t count, void* state) {
 	FILE* f = fopen("/dev/urandom", "rb");
-	if (f) { fread(buf, 1, count, f); fclose(f); }
+	if (f) {
+		size_t got = fread(buf, 1, count, f);
+		fclose(f);
+		// /dev/urandom does not short-read in practice; zero any shortfall so
+		// the gen_i contract (all count octets produced) still holds.
+		if (got < count)
+			memset((octet*)buf + got, 0, count - got);
+	}
 }
 
 // C wrappers that accept the rng/id arguments as void* so CGO does not need
