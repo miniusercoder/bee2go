@@ -9,6 +9,8 @@
 //   - bign  — elliptic-curve digital signature and key transport (STB 34.101.45)
 //   - brng  — deterministic pseudorandom number generators (STB 34.101.47)
 //   - bake  — authenticated key establishment protocols, BSTS (STB 34.101.66)
+//   - rng   — entropy sources, random number generator, FIPS tests
+//     (STB 34.101.27)
 //
 // # Prerequisites
 //
