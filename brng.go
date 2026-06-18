@@ -85,6 +85,33 @@ func BrngCTRRand(count int, key, iv []byte) ([]byte, []byte, error) {
 	return buf, ivCopy, nil
 }
 
+// BrngCTRRandInto transforms buf in place using brng-CTR and returns the
+// updated IV. The initial contents of buf are part of the generator input.
+func BrngCTRRandInto(buf, key, iv []byte) ([]byte, error) {
+	if len(key) != 32 {
+		return nil, errors.New("bee2: brng-CTR key must be 32 bytes")
+	}
+	if len(iv) != 32 {
+		return nil, errors.New("bee2: brng-CTR iv must be 32 bytes")
+	}
+	ivCopy := make([]byte, 32)
+	copy(ivCopy, iv)
+	var bufPtr unsafe.Pointer
+	if len(buf) > 0 {
+		bufPtr = unsafe.Pointer(&buf[0])
+	}
+	rc := C.brngCTRRand(
+		bufPtr,
+		C.size_t(len(buf)),
+		(*C.octet)(unsafe.Pointer(&key[0])),
+		(*C.octet)(unsafe.Pointer(&ivCopy[0])),
+	)
+	if rc != 0 {
+		return nil, errors.New("bee2: brngCTRRand failed")
+	}
+	return ivCopy, nil
+}
+
 // Free releases the underlying C state.
 func (r *BrngCTR) Free() {
 	if r.state != nil {

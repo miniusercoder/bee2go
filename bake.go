@@ -7,6 +7,7 @@ package bee2go
 #include <stdlib.h>
 #include <string.h>
 #include "bee2/core/err.h"
+#include "bee2/core/prng.h"
 #include "bee2/crypto/bake.h"
 #include "bee2/crypto/bign.h"
 
@@ -72,6 +73,14 @@ static err_t accept_all_certval(
 // Getter helpers return void* so CGO can map them to unsafe.Pointer.
 static void* get_bake_urandom(void)     { return (void*)bake_urandom; }
 static void* get_accept_all_certval(void) { return (void*)accept_all_certval; }
+static void* get_prng_echo_step_r(void) { return (void*)prngEchoStepR; }
+
+static void* make_prng_echo_state(const octet* seed, size_t seed_len) {
+	void* state = malloc(prngEcho_keep());
+	if (state)
+		prngEchoStart(state, seed, seed_len);
+	return state;
+}
 */
 import "C"
 import (
@@ -92,6 +101,95 @@ func BakeDefaultRNG() unsafe.Pointer { return C.get_bake_urandom() }
 // its last l/2 bytes (convention: cert = <identity> || <pubkey>).
 // Suitable for passing to NewBakeCert, Step4, and Step5.
 func BakeAcceptAllCertVal() unsafe.Pointer { return C.get_accept_all_certval() }
+
+// BakeEchoRNG wraps bee2's deterministic prngEcho generator.
+//
+// It is intended for reproducible known-answer tests and protocol fixtures.
+type BakeEchoRNG struct {
+	state unsafe.Pointer
+}
+
+// NewBakeEchoRNG creates a deterministic RNG that repeats seed.
+func NewBakeEchoRNG(seed []byte) (*BakeEchoRNG, error) {
+	if len(seed) == 0 {
+		return nil, errors.New("bee2: prngEcho seed must not be empty")
+	}
+	state := C.make_prng_echo_state((*C.octet)(unsafe.Pointer(&seed[0])), C.size_t(len(seed)))
+	if state == nil {
+		return nil, errors.New("bee2: malloc prngEcho state")
+	}
+	return &BakeEchoRNG{state: state}, nil
+}
+
+// Func returns the C gen_i function pointer for NewBakeSettings.
+func (r *BakeEchoRNG) Func() unsafe.Pointer { return C.get_prng_echo_step_r() }
+
+// State returns the C RNG state pointer for NewBakeSettings.
+func (r *BakeEchoRNG) State() unsafe.Pointer {
+	if r == nil {
+		return nil
+	}
+	return r.state
+}
+
+// Free releases the underlying C RNG state.
+func (r *BakeEchoRNG) Free() {
+	if r.state != nil {
+		C.free(r.state)
+		r.state = nil
+	}
+}
+
+// BakeKDF derives a 32-byte key from secret, iv, and key number num.
+func BakeKDF(secret, iv []byte, num int) ([]byte, error) {
+	if len(secret) == 0 {
+		return nil, errors.New("bee2: bakeKDF secret must not be empty")
+	}
+	if len(iv) == 0 {
+		return nil, errors.New("bee2: bakeKDF iv must not be empty")
+	}
+	if num < 0 {
+		return nil, errors.New("bee2: bakeKDF num must be non-negative")
+	}
+	key := make([]byte, 32)
+	rc := C.bakeKDF(
+		(*C.octet)(unsafe.Pointer(&key[0])),
+		(*C.octet)(unsafe.Pointer(&secret[0])),
+		C.size_t(len(secret)),
+		(*C.octet)(unsafe.Pointer(&iv[0])),
+		C.size_t(len(iv)),
+		C.size_t(num),
+	)
+	if rc != 0 {
+		return nil, errors.New("bee2: bakeKDF failed")
+	}
+	return key, nil
+}
+
+// BakeSWU maps msg to a point on the bign curve described by params.
+func BakeSWU(params *BignParams, msg []byte) ([]byte, error) {
+	if params == nil {
+		return nil, errors.New("bee2: params is nil")
+	}
+	if len(msg) != params.PrivKeyLen() {
+		return nil, errors.New("bee2: bakeSWU message has invalid length")
+	}
+	pt := make([]byte, params.PubKeyLen())
+	rc := C.bakeSWU(
+		(*C.octet)(unsafe.Pointer(&pt[0])),
+		params.params,
+		(*C.octet)(unsafe.Pointer(&msg[0])),
+	)
+	if rc != 0 {
+		return nil, errors.New("bee2: bakeSWU failed")
+	}
+	return pt, nil
+}
+
+// BakeDH is the bake name for the base bign Diffie-Hellman operation.
+func BakeDH(params *BignParams, privKey, peerPubKey []byte, keyLen int) ([]byte, error) {
+	return BignDH(params, privKey, peerPubKey, keyLen)
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // BakeSettings

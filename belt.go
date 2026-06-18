@@ -9,6 +9,7 @@ package bee2go
 */
 import "C"
 import (
+	"crypto/subtle"
 	"errors"
 	"hash"
 	"unsafe"
@@ -75,12 +76,47 @@ func BeltHash(src []byte) ([]byte, error) {
 	return h.Sum(nil), nil
 }
 
+// BeltH returns the 256-byte belt H table used by the upstream KAT vectors.
+func BeltH() []byte {
+	out := make([]byte, 256)
+	C.memcpy(unsafe.Pointer(&out[0]), unsafe.Pointer(C.beltH()), C.size_t(len(out)))
+	return out
+}
+
+// BeltHashN computes the first n bytes of belt-hash(src).
+func BeltHashN(src []byte, n int) ([]byte, error) {
+	if n < 0 || n > 32 {
+		return nil, errors.New("bee2: beltHash output length must be between 0 and 32")
+	}
+	h, err := NewBeltHash()
+	if err != nil {
+		return nil, err
+	}
+	bh := h.(*beltHash)
+	defer bh.Free()
+	_, _ = bh.Write(src)
+	out := make([]byte, n)
+	if n > 0 {
+		C.beltHashStepG2((*C.octet)(unsafe.Pointer(&out[0])), C.size_t(n), bh.state)
+	}
+	return out, nil
+}
+
+// BeltHashVerify reports whether expected is the belt-hash prefix of src.
+func BeltHashVerify(src, expected []byte) (bool, error) {
+	got, err := BeltHashN(src, len(expected))
+	if err != nil {
+		return false, err
+	}
+	return subtle.ConstantTimeCompare(got, expected) == 1, nil
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // belt-ECB (STB 34.101.31 §6.1.1)
 // ────────────────────────────────────────────────────────────────────────────
 
 // BeltECBEncr encrypts src in ECB mode under key (16, 24, or 32 bytes).
-// src length must be a multiple of 16 and ≥ 16.
+// src length must be at least 16 bytes; incomplete final blocks use CTS.
 func BeltECBEncr(src, key []byte) ([]byte, error) {
 	if err := checkBeltKey(key); err != nil {
 		return nil, err
@@ -100,6 +136,7 @@ func BeltECBEncr(src, key []byte) ([]byte, error) {
 }
 
 // BeltECBDecr decrypts src in ECB mode under key.
+// src length must be at least 16 bytes; incomplete final blocks use CTS.
 func BeltECBDecr(src, key []byte) ([]byte, error) {
 	if err := checkBeltKey(key); err != nil {
 		return nil, err

@@ -6,7 +6,10 @@ package bee2go
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include "bee2/core/err.h"
+#include "bee2/crypto/belt.h"
 #include "bee2/crypto/bign.h"
+#include "bee2/crypto/brng.h"
 
 // urandom_gen is a gen_i that reads from /dev/urandom. Declared here as a
 // non-static C function so other translation units can reference it via the
@@ -74,6 +77,71 @@ static err_t _bignKeypairGen(
 	octet* priv, octet* pub, const bign_params* p)
 {
 	return bignKeypairGen(priv, pub, p, urandom_gen, NULL);
+}
+
+typedef struct
+{
+	const octet* X;
+	size_t count;
+	size_t offset;
+	unsigned char state_ex[];
+} bee2go_brng_ctrx_st;
+
+static size_t bee2go_brng_ctrx_keep(void)
+{
+	return sizeof(bee2go_brng_ctrx_st) + brngCTR_keep();
+}
+
+static void bee2go_brng_ctrx_start(const octet key[32], const octet iv[32],
+	const void* X, size_t count, void* state)
+{
+	bee2go_brng_ctrx_st* s = (bee2go_brng_ctrx_st*)state;
+	brngCTRStart(s->state_ex, key, iv);
+	s->X = (const octet*)X;
+	s->count = count;
+	s->offset = 0;
+}
+
+static void bee2go_brng_ctrx_step_r(void* buf, size_t count, void* state)
+{
+	bee2go_brng_ctrx_st* s = (bee2go_brng_ctrx_st*)state;
+	octet* dst = (octet*)buf;
+	size_t left = count;
+	while (left)
+	{
+		size_t chunk = s->count - s->offset;
+		if (chunk > left)
+			chunk = left;
+		memcpy(dst, s->X + s->offset, chunk);
+		dst += chunk;
+		left -= chunk;
+		s->offset += chunk;
+		if (s->offset == s->count)
+			s->offset = 0;
+	}
+	brngCTRStepR(buf, count, s->state_ex);
+}
+
+static err_t _bignKeypairGenBeltH(octet* priv, octet* pub, const bign_params* p)
+{
+	err_t rc;
+	void* state = malloc(bee2go_brng_ctrx_keep());
+	if (!state)
+		return ERR_OUTOFMEMORY;
+	bee2go_brng_ctrx_start(beltH() + 128, beltH() + 128 + 64, beltH(), 8 * 32, state);
+	rc = bignKeypairGen(priv, pub, p, bee2go_brng_ctrx_step_r, state);
+	free(state);
+	return rc;
+}
+
+static err_t _bignDHBeltG(octet* key, const bign_params* p,
+	const octet* priv, size_t key_len)
+{
+	octet pub[128];
+	size_t no = p->l / 4;
+	memset(pub, 0, sizeof(pub));
+	memcpy(pub + no, p->yG, no);
+	return bignDH(key, p, priv, pub, key_len);
 }
 */
 import "C"
@@ -195,6 +263,37 @@ func BignKeypairGen(params *BignParams) (privKey, pubKey []byte, err error) {
 	return privKey, pubKey, nil
 }
 
+func bignKeypairGenBeltH(params *BignParams) (privKey, pubKey []byte, err error) {
+	if params == nil {
+		return nil, nil, errors.New("bee2: params is nil")
+	}
+	privKey = make([]byte, params.PrivKeyLen())
+	pubKey = make([]byte, params.PubKeyLen())
+	rc := C._bignKeypairGenBeltH(
+		(*C.octet)(unsafe.Pointer(&privKey[0])),
+		(*C.octet)(unsafe.Pointer(&pubKey[0])),
+		params.params,
+	)
+	if rc != 0 {
+		return nil, nil, errors.New("bee2: bignKeypairGen KAT failed")
+	}
+	return privKey, pubKey, nil
+}
+
+// BignPubkeyVal validates a bign public key against params.
+func BignPubkeyVal(params *BignParams, pubKey []byte) error {
+	if params == nil {
+		return errors.New("bee2: params is nil")
+	}
+	if len(pubKey) < params.PubKeyLen() {
+		return errors.New("bee2: pubKey too short")
+	}
+	if rc := C.bignPubkeyVal(params.params, (*C.octet)(unsafe.Pointer(&pubKey[0]))); rc != 0 {
+		return errors.New("bee2: bignPubkeyVal failed")
+	}
+	return nil
+}
+
 // BignPubkeyCalc derives the public key from privKey.
 func BignPubkeyCalc(params *BignParams, privKey []byte) ([]byte, error) {
 	if params == nil {
@@ -237,6 +336,29 @@ func BignDH(params *BignParams, privKey, peerPubKey []byte, keyLen int) ([]byte,
 	)
 	if rc != 0 {
 		return nil, errors.New("bee2: bignDH failed")
+	}
+	return sharedKey, nil
+}
+
+func bignDHBeltG(params *BignParams, privKey []byte, keyLen int) ([]byte, error) {
+	if params == nil {
+		return nil, errors.New("bee2: params is nil")
+	}
+	if len(privKey) < params.PrivKeyLen() {
+		return nil, errors.New("bee2: privKey too short")
+	}
+	if keyLen <= 0 || keyLen > params.PubKeyLen() {
+		return nil, errors.New("bee2: invalid DH key length")
+	}
+	sharedKey := make([]byte, keyLen)
+	rc := C._bignDHBeltG(
+		(*C.octet)(unsafe.Pointer(&sharedKey[0])),
+		params.params,
+		(*C.octet)(unsafe.Pointer(&privKey[0])),
+		C.size_t(keyLen),
+	)
+	if rc != 0 {
+		return nil, errors.New("bee2: bignDH generator KAT failed")
 	}
 	return sharedKey, nil
 }
