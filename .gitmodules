@@ -1,3 +1,4 @@
 [submodule "bee2"]
 	path = bee2
-	url = https://github.com/agievich/bee2.git
+	url = https://github.com/miniusercoder/bee2.git
+	branch = jitter-timer-fix

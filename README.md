@@ -15,7 +15,7 @@ Go-обертки для [bee2](https://github.com/agievich/bee2) — C-реал
 - Go 1.22+
 - Тулчейн C-компилятора
 - CMake
-- Исходники `bee2` доступны как git submodule в `./bee2`
+- Исходники `bee2` доступны как git submodule в `./bee2` (форк `miniusercoder/bee2`, ветка `jitter-timer-fix`)
 
 ## Быстрый старт
 
@@ -31,6 +31,8 @@ cd bee2go
 ```bash
 git submodule update --init --recursive
 ```
+
+Сабмодуль `bee2` настроен на форк `https://github.com/miniusercoder/bee2` и отслеживает ветку `jitter-timer-fix`.
 
 ### 2. Установил-запустил (одной командой)
 
