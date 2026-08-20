@@ -30,4 +30,7 @@
 // Objects that allocate C memory expose a Free() method. Call Free() when
 // you are done with an object to avoid leaks. Using an object after Free()
 // is undefined behaviour.
+//
+// Use MemWipe to securely overwrite secret byte slices that are no longer
+// needed. It wipes the slice's current length, not unused capacity or copies.
 package bee2go
