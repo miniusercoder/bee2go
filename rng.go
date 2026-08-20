@@ -142,7 +142,13 @@ func RngESRead(buf []byte, source string) (int, error) {
 		bufPtr = unsafe.Pointer(&buf[0])
 	}
 	rc := C.rngESRead(&read, bufPtr, C.size_t(len(buf)), cSource)
-	return int(read), rngErr("rngESRead", rc)
+	if err := rngErr("rngESRead", rc); err != nil {
+		// Failed entropy is not usable key material. Do not leave a partial
+		// sample in the caller's buffer or report it as consumable output.
+		MemWipe(buf)
+		return 0, err
+	}
+	return int(read), nil
 }
 
 // RngESTest statistically tests the named entropy source: it draws data from

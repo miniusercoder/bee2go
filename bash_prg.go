@@ -71,7 +71,9 @@ func (p *BashPrg) Restart(ann, key []byte) {
 	if len(key) > 0 {
 		keyPtr = (*C.octet)(unsafe.Pointer(&key[0]))
 	}
-	// bashPrgRestart signature: (ann, ann_len, key, key_len, state)
+	// Restart cryptographically commits the previous state before absorbing
+	// the new announcement/key. The old state is still live input here and
+	// must not be wiped before the operation.
 	C.bashPrgRestart(annPtr, C.size_t(len(ann)), keyPtr, C.size_t(len(key)), p.state)
 }
 
@@ -120,7 +122,7 @@ func (p *BashPrg) Ratchet() {
 // Free releases the underlying C state. Must be called when the PRG is no longer needed.
 func (p *BashPrg) Free() {
 	if p.state != nil {
-		C.free(p.state)
+		freeWiped(p.state, uintptr(C.bashPrg_keep()))
 		p.state = nil
 	}
 }

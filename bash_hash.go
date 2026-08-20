@@ -50,14 +50,17 @@ func (h *bashHash) Sum(b []byte) []byte {
 	if tmp == nil {
 		panic("bee2: failed to allocate temporary bashHash state")
 	}
-	defer C.free(tmp)
+	defer freeWiped(tmp, uintptr(stateSize))
 	C.memcpy(tmp, h.state, stateSize)
 
 	C.bashHashStepG((*C.octet)(unsafe.Pointer(&out[0])), C.size_t(hashLen), tmp)
-	return append(b, out...)
+	result := append(b, out...)
+	MemWipe(out)
+	return result
 }
 
 func (h *bashHash) Reset() {
+	wipePointer(h.state, uintptr(C.bashHash_keep()))
 	C.bashHashStart(h.state, C.size_t(h.l))
 }
 
@@ -74,7 +77,7 @@ func (h *bashHash) BlockSize() int {
 // Free releases the underlying C state. Must be called when the hash is no longer needed.
 func (h *bashHash) Free() {
 	if h.state != nil {
-		C.free(h.state)
+		freeWiped(h.state, uintptr(C.bashHash_keep()))
 		h.state = nil
 	}
 }

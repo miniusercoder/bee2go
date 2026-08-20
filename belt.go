@@ -46,21 +46,26 @@ func (h *beltHash) Sum(b []byte) []byte {
 	if tmp == nil {
 		panic("bee2: malloc beltHash tmp")
 	}
-	defer C.free(tmp)
+	defer freeWiped(tmp, uintptr(sz))
 	C.memcpy(tmp, h.state, sz)
 	out := make([]byte, 32)
 	C.beltHashStepG((*C.octet)(unsafe.Pointer(&out[0])), tmp)
-	return append(b, out...)
+	result := append(b, out...)
+	MemWipe(out)
+	return result
 }
 
-func (h *beltHash) Reset()         { C.beltHashStart(h.state) }
+func (h *beltHash) Reset() {
+	wipePointer(h.state, uintptr(C.beltHash_keep()))
+	C.beltHashStart(h.state)
+}
 func (h *beltHash) Size() int      { return 32 }
 func (h *beltHash) BlockSize() int { return 32 }
 
 // Free releases the underlying C state.
 func (h *beltHash) Free() {
 	if h.state != nil {
-		C.free(h.state)
+		freeWiped(h.state, uintptr(C.beltHash_keep()))
 		h.state = nil
 	}
 }
@@ -105,6 +110,7 @@ func BeltHashN(src []byte, n int) ([]byte, error) {
 // BeltHashVerify reports whether expected is the belt-hash prefix of src.
 func BeltHashVerify(src, expected []byte) (bool, error) {
 	got, err := BeltHashN(src, len(expected))
+	defer MemWipe(got)
 	if err != nil {
 		return false, err
 	}
@@ -130,6 +136,7 @@ func BeltECBEncr(src, key []byte) ([]byte, error) {
 		C.size_t(len(key)),
 	)
 	if rc != 0 {
+		MemWipe(dst)
 		return nil, errors.New("bee2: beltECBEncr failed")
 	}
 	return dst, nil
@@ -150,6 +157,7 @@ func BeltECBDecr(src, key []byte) ([]byte, error) {
 		C.size_t(len(key)),
 	)
 	if rc != 0 {
+		MemWipe(dst)
 		return nil, errors.New("bee2: beltECBDecr failed")
 	}
 	return dst, nil
@@ -177,6 +185,7 @@ func BeltCBCEncr(src, key, iv []byte) ([]byte, error) {
 		(*C.octet)(unsafe.Pointer(&iv[0])),
 	)
 	if rc != 0 {
+		MemWipe(dst)
 		return nil, errors.New("bee2: beltCBCEncr failed")
 	}
 	return dst, nil
@@ -200,6 +209,7 @@ func BeltCBCDecr(src, key, iv []byte) ([]byte, error) {
 		(*C.octet)(unsafe.Pointer(&iv[0])),
 	)
 	if rc != 0 {
+		MemWipe(dst)
 		return nil, errors.New("bee2: beltCBCDecr failed")
 	}
 	return dst, nil
@@ -227,6 +237,7 @@ func BeltCFBEncr(src, key, iv []byte) ([]byte, error) {
 		(*C.octet)(unsafe.Pointer(&iv[0])),
 	)
 	if rc != 0 {
+		MemWipe(dst)
 		return nil, errors.New("bee2: beltCFBEncr failed")
 	}
 	return dst, nil
@@ -250,6 +261,7 @@ func BeltCFBDecr(src, key, iv []byte) ([]byte, error) {
 		(*C.octet)(unsafe.Pointer(&iv[0])),
 	)
 	if rc != 0 {
+		MemWipe(dst)
 		return nil, errors.New("bee2: beltCFBDecr failed")
 	}
 	return dst, nil
@@ -278,6 +290,7 @@ func BeltCTR(src, key, iv []byte) ([]byte, error) {
 		(*C.octet)(unsafe.Pointer(&iv[0])),
 	)
 	if rc != 0 {
+		MemWipe(dst)
 		return nil, errors.New("bee2: beltCTR failed")
 	}
 	return dst, nil
@@ -301,6 +314,7 @@ func BeltMAC(src, key []byte) ([]byte, error) {
 		C.size_t(len(key)),
 	)
 	if rc != 0 {
+		MemWipe(mac)
 		return nil, errors.New("bee2: beltMAC failed")
 	}
 	return mac, nil
@@ -344,6 +358,8 @@ func BeltDWPWrap(plaintext, aad, key, iv []byte) (ciphertext, mac []byte, err er
 	)
 	if rc != 0 {
 		err = errors.New("bee2: beltDWPWrap failed")
+		MemWipe(ciphertext)
+		MemWipe(mac)
 		ciphertext, mac = nil, nil
 	}
 	return
@@ -381,6 +397,7 @@ func BeltDWPUnwrap(ciphertext, aad, mac, key, iv []byte) ([]byte, error) {
 		(*C.octet)(unsafe.Pointer(&iv[0])),
 	)
 	if rc != 0 {
+		MemWipe(plaintext)
 		return nil, errors.New("bee2: beltDWPUnwrap: authentication failed")
 	}
 	return plaintext, nil
@@ -423,6 +440,8 @@ func BeltCHEWrap(plaintext, aad, key, iv []byte) (ciphertext, mac []byte, err er
 	)
 	if rc != 0 {
 		err = errors.New("bee2: beltCHEWrap failed")
+		MemWipe(ciphertext)
+		MemWipe(mac)
 		ciphertext, mac = nil, nil
 	}
 	return
@@ -459,6 +478,7 @@ func BeltCHEUnwrap(ciphertext, aad, mac, key, iv []byte) ([]byte, error) {
 		(*C.octet)(unsafe.Pointer(&iv[0])),
 	)
 	if rc != 0 {
+		MemWipe(plaintext)
 		return nil, errors.New("bee2: beltCHEUnwrap: authentication failed")
 	}
 	return plaintext, nil
@@ -491,6 +511,7 @@ func BeltKWPWrap(key, header, wrapKey []byte) ([]byte, error) {
 		C.size_t(len(wrapKey)),
 	)
 	if rc != 0 {
+		MemWipe(token)
 		return nil, errors.New("bee2: beltKWPWrap failed")
 	}
 	return token, nil
@@ -519,6 +540,7 @@ func BeltKWPUnwrap(token, header, wrapKey []byte) ([]byte, error) {
 		C.size_t(len(wrapKey)),
 	)
 	if rc != 0 {
+		MemWipe(key)
 		return nil, errors.New("bee2: beltKWPUnwrap failed")
 	}
 	return key, nil
@@ -542,6 +564,7 @@ func BeltHMAC(src, key []byte) ([]byte, error) {
 		C.size_t(len(key)),
 	)
 	if rc != 0 {
+		MemWipe(mac)
 		return nil, errors.New("bee2: beltHMAC failed")
 	}
 	return mac, nil
@@ -574,6 +597,7 @@ func BeltPBKDF2(password []byte, iter int, salt []byte) ([]byte, error) {
 		C.size_t(len(salt)),
 	)
 	if rc != 0 {
+		MemWipe(key)
 		return nil, errors.New("bee2: beltPBKDF2 failed")
 	}
 	return key, nil
@@ -612,6 +636,7 @@ func BeltKRP(src []byte, level, header []byte, m int) ([]byte, error) {
 		(*C.octet)(unsafe.Pointer(&header[0])),
 	)
 	if rc != 0 {
+		MemWipe(dest)
 		return nil, errors.New("bee2: beltKRP failed")
 	}
 	return dest, nil
