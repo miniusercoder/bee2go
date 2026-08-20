@@ -64,6 +64,9 @@ func (r *BrngCTR) IV() []byte {
 // iv is updated in-place; use the returned slice as the next iv to avoid
 // repeating the same output.
 func BrngCTRRand(count int, key, iv []byte) ([]byte, []byte, error) {
+	if count < 0 {
+		return nil, nil, errors.New("bee2: brng-CTR count must not be negative")
+	}
 	if len(key) != 32 {
 		return nil, nil, errors.New("bee2: brng-CTR key must be 32 bytes")
 	}
@@ -73,13 +76,19 @@ func BrngCTRRand(count int, key, iv []byte) ([]byte, []byte, error) {
 	buf := make([]byte, count)
 	ivCopy := make([]byte, 32)
 	copy(ivCopy, iv)
+	var bufPtr unsafe.Pointer
+	if len(buf) > 0 {
+		bufPtr = unsafe.Pointer(&buf[0])
+	}
 	rc := C.brngCTRRand(
-		unsafe.Pointer(&buf[0]),
+		bufPtr,
 		C.size_t(count),
 		(*C.octet)(unsafe.Pointer(&key[0])),
 		(*C.octet)(unsafe.Pointer(&ivCopy[0])),
 	)
 	if rc != 0 {
+		MemWipe(buf)
+		MemWipe(ivCopy)
 		return nil, nil, errors.New("bee2: brngCTRRand failed")
 	}
 	return buf, ivCopy, nil
@@ -107,6 +116,8 @@ func BrngCTRRandInto(buf, key, iv []byte) ([]byte, error) {
 		(*C.octet)(unsafe.Pointer(&ivCopy[0])),
 	)
 	if rc != 0 {
+		MemWipe(buf)
+		MemWipe(ivCopy)
 		return nil, errors.New("bee2: brngCTRRand failed")
 	}
 	return ivCopy, nil
@@ -115,7 +126,7 @@ func BrngCTRRandInto(buf, key, iv []byte) ([]byte, error) {
 // Free releases the underlying C state.
 func (r *BrngCTR) Free() {
 	if r.state != nil {
-		C.free(r.state)
+		freeWiped(r.state, uintptr(C.brngCTR_keep()))
 		r.state = nil
 	}
 }
@@ -164,6 +175,9 @@ func (r *BrngHMAC) Read(p []byte) (int, error) {
 
 // BrngHMACRand generates count pseudo-random bytes using key and iv.
 func BrngHMACRand(count int, key, iv []byte) ([]byte, error) {
+	if count < 0 {
+		return nil, errors.New("bee2: brng-HMAC count must not be negative")
+	}
 	if len(key) == 0 {
 		return nil, errors.New("bee2: brng-HMAC key must not be empty")
 	}
@@ -174,14 +188,19 @@ func BrngHMACRand(count int, key, iv []byte) ([]byte, error) {
 		ivPtr = (*C.octet)(unsafe.Pointer(&iv[0]))
 		ivLen = C.size_t(len(iv))
 	}
+	var bufPtr unsafe.Pointer
+	if len(buf) > 0 {
+		bufPtr = unsafe.Pointer(&buf[0])
+	}
 	rc := C.brngHMACRand(
-		unsafe.Pointer(&buf[0]),
+		bufPtr,
 		C.size_t(count),
 		(*C.octet)(unsafe.Pointer(&key[0])),
 		C.size_t(len(key)),
 		ivPtr, ivLen,
 	)
 	if rc != 0 {
+		MemWipe(buf)
 		return nil, errors.New("bee2: brngHMACRand failed")
 	}
 	return buf, nil
@@ -190,7 +209,7 @@ func BrngHMACRand(count int, key, iv []byte) ([]byte, error) {
 // Free releases the underlying C state.
 func (r *BrngHMAC) Free() {
 	if r.state != nil {
-		C.free(r.state)
+		freeWiped(r.state, uintptr(C.brngHMAC_keep()))
 		r.state = nil
 	}
 }

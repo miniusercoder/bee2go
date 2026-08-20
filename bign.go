@@ -182,7 +182,7 @@ func NewBignParamsStd(oid string) (*BignParams, error) {
 	cs := C.CString(oid)
 	defer C.free(unsafe.Pointer(cs))
 	if rc := C.bignParamsStd(p, cs); rc != 0 {
-		C.free(unsafe.Pointer(p))
+		freeWiped(unsafe.Pointer(p), uintptr(C.sizeof_bign_params))
 		return nil, errors.New("bee2: bignParamsStd: unknown OID")
 	}
 	return &BignParams{params: p}, nil
@@ -200,7 +200,7 @@ func NewBignParams512v1() (*BignParams, error) { return NewBignParamsStd(bignCur
 // Free releases the underlying C memory.
 func (p *BignParams) Free() {
 	if p.params != nil {
-		C.free(unsafe.Pointer(p.params))
+		freeWiped(unsafe.Pointer(p.params), uintptr(C.sizeof_bign_params))
 		p.params = nil
 	}
 }
@@ -258,6 +258,8 @@ func BignKeypairGen(params *BignParams) (privKey, pubKey []byte, err error) {
 		params.params,
 	)
 	if rc != 0 {
+		MemWipe(privKey)
+		MemWipe(pubKey)
 		return nil, nil, errors.New("bee2: bignKeypairGen failed")
 	}
 	return privKey, pubKey, nil
@@ -275,6 +277,8 @@ func bignKeypairGenBeltH(params *BignParams) (privKey, pubKey []byte, err error)
 		params.params,
 	)
 	if rc != 0 {
+		MemWipe(privKey)
+		MemWipe(pubKey)
 		return nil, nil, errors.New("bee2: bignKeypairGen KAT failed")
 	}
 	return privKey, pubKey, nil
@@ -309,6 +313,7 @@ func BignPubkeyCalc(params *BignParams, privKey []byte) ([]byte, error) {
 		(*C.octet)(unsafe.Pointer(&privKey[0])),
 	)
 	if rc != 0 {
+		MemWipe(pubKey)
 		return nil, errors.New("bee2: bignPubkeyCalc failed")
 	}
 	return pubKey, nil
@@ -335,6 +340,7 @@ func BignDH(params *BignParams, privKey, peerPubKey []byte, keyLen int) ([]byte,
 		C.size_t(keyLen),
 	)
 	if rc != 0 {
+		MemWipe(sharedKey)
 		return nil, errors.New("bee2: bignDH failed")
 	}
 	return sharedKey, nil
@@ -358,6 +364,7 @@ func bignDHBeltG(params *BignParams, privKey []byte, keyLen int) ([]byte, error)
 		C.size_t(keyLen),
 	)
 	if rc != 0 {
+		MemWipe(sharedKey)
 		return nil, errors.New("bee2: bignDH generator KAT failed")
 	}
 	return sharedKey, nil
@@ -384,6 +391,7 @@ func BignSign(params *BignParams, oidDER, hash, privKey []byte) ([]byte, error) 
 		(*C.octet)(unsafe.Pointer(&privKey[0])),
 	)
 	if rc != 0 {
+		MemWipe(sig)
 		return nil, errors.New("bee2: bignSign failed")
 	}
 	return sig, nil
@@ -411,6 +419,7 @@ func BignSign2(params *BignParams, oidDER, hash, privKey, t []byte) ([]byte, err
 		C.size_t(len(t)),
 	)
 	if rc != 0 {
+		MemWipe(sig)
 		return nil, errors.New("bee2: bignSign2 failed")
 	}
 	return sig, nil
@@ -471,6 +480,7 @@ func BignKeyWrap(params *BignParams, key, header, recipientPubKey []byte) ([]byt
 		(*C.octet)(unsafe.Pointer(&recipientPubKey[0])),
 	)
 	if rc != 0 {
+		MemWipe(token)
 		return nil, errors.New("bee2: bignKeyWrap failed")
 	}
 	return token, nil
@@ -503,6 +513,7 @@ func BignKeyUnwrap(params *BignParams, token, header, privKey []byte) ([]byte, e
 		(*C.octet)(unsafe.Pointer(&privKey[0])),
 	)
 	if rc != 0 {
+		MemWipe(key)
 		return nil, errors.New("bee2: bignKeyUnwrap failed")
 	}
 	return key, nil
@@ -535,6 +546,8 @@ func BignIdExtract(params *BignParams, oidDER, idHash, idSig, masterPubKey []byt
 		(*C.octet)(unsafe.Pointer(&masterPubKey[0])),
 	)
 	if rc != 0 {
+		MemWipe(idPrivKey)
+		MemWipe(idPubKey)
 		return nil, nil, errors.New("bee2: bignIdExtract failed")
 	}
 	return idPrivKey, idPubKey, nil
@@ -556,6 +569,7 @@ func BignIdSign(params *BignParams, oidDER, idHash, hash, idPrivKey []byte) ([]b
 		(*C.octet)(unsafe.Pointer(&idPrivKey[0])),
 	)
 	if rc != 0 {
+		MemWipe(sig)
 		return nil, errors.New("bee2: bignIdSign failed")
 	}
 	return sig, nil
@@ -584,6 +598,7 @@ func BignIdSign2(params *BignParams, oidDER, idHash, hash, idPrivKey, t []byte) 
 		C.size_t(len(t)),
 	)
 	if rc != 0 {
+		MemWipe(sig)
 		return nil, errors.New("bee2: bignIdSign2 failed")
 	}
 	return sig, nil

@@ -135,7 +135,7 @@ func (r *BakeEchoRNG) State() unsafe.Pointer {
 // Free releases the underlying C RNG state.
 func (r *BakeEchoRNG) Free() {
 	if r.state != nil {
-		C.free(r.state)
+		freeWiped(r.state, uintptr(C.prngEcho_keep()))
 		r.state = nil
 	}
 }
@@ -161,6 +161,7 @@ func BakeKDF(secret, iv []byte, num int) ([]byte, error) {
 		C.size_t(num),
 	)
 	if rc != 0 {
+		MemWipe(key)
 		return nil, errors.New("bee2: bakeKDF failed")
 	}
 	return key, nil
@@ -181,6 +182,7 @@ func BakeSWU(params *BignParams, msg []byte) ([]byte, error) {
 		(*C.octet)(unsafe.Pointer(&msg[0])),
 	)
 	if rc != 0 {
+		MemWipe(pt)
 		return nil, errors.New("bee2: bakeSWU failed")
 	}
 	return pt, nil
@@ -200,9 +202,11 @@ func BakeDH(params *BignParams, privKey, peerPubKey []byte, keyLen int) ([]byte,
 // convert a Go func to a C function pointer directly).
 // rngState is the opaque state pointer passed back to rng on each call.
 type BakeSettings struct {
-	settings *C.bake_settings
-	helloa   unsafe.Pointer
-	hellob   unsafe.Pointer
+	settings  *C.bake_settings
+	helloa    unsafe.Pointer
+	hellob    unsafe.Pointer
+	helloaLen uintptr
+	hellobLen uintptr
 }
 
 // NewBakeSettings allocates and populates a bake_settings struct.
@@ -222,11 +226,13 @@ func NewBakeSettings(kca, kcb bool, helloa, hellob []byte, rng, rngState unsafe.
 	}
 	if len(helloa) > 0 {
 		bs.helloa = C.CBytes(helloa)
+		bs.helloaLen = uintptr(len(helloa))
 		s.helloa = bs.helloa
 		s.helloa_len = C.size_t(len(helloa))
 	}
 	if len(hellob) > 0 {
 		bs.hellob = C.CBytes(hellob)
+		bs.hellobLen = uintptr(len(hellob))
 		s.hellob = bs.hellob
 		s.hellob_len = C.size_t(len(hellob))
 	}
@@ -239,15 +245,17 @@ func NewBakeSettings(kca, kcb bool, helloa, hellob []byte, rng, rngState unsafe.
 // Free releases C memory owned by BakeSettings.
 func (s *BakeSettings) Free() {
 	if s.helloa != nil {
-		C.free(s.helloa)
+		freeWiped(s.helloa, s.helloaLen)
 		s.helloa = nil
+		s.helloaLen = 0
 	}
 	if s.hellob != nil {
-		C.free(s.hellob)
+		freeWiped(s.hellob, s.hellobLen)
 		s.hellob = nil
+		s.hellobLen = 0
 	}
 	if s.settings != nil {
-		C.free(unsafe.Pointer(s.settings))
+		freeWiped(unsafe.Pointer(s.settings), uintptr(C.sizeof_bake_settings))
 		s.settings = nil
 	}
 }
@@ -258,9 +266,10 @@ func (s *BakeSettings) Free() {
 
 // BakeCert wraps bake_cert.
 type BakeCert struct {
-	cert  *C.bake_cert
-	data  unsafe.Pointer
-	owned bool
+	cert    *C.bake_cert
+	data    unsafe.Pointer
+	dataLen uintptr
+	owned   bool
 }
 
 // NewBakeCert creates a BakeCert from raw certificate data and a C-side
@@ -270,10 +279,10 @@ func NewBakeCert(data []byte, valFn unsafe.Pointer) (*BakeCert, error) {
 	cData := C.CBytes(data)
 	cert := C.make_bake_cert((*C.octet)(cData), C.size_t(len(data)), valFn)
 	if cert == nil {
-		C.free(cData)
+		freeWiped(cData, uintptr(len(data)))
 		return nil, errors.New("bee2: failed to allocate bake_cert")
 	}
-	return &BakeCert{cert: cert, data: cData, owned: true}, nil
+	return &BakeCert{cert: cert, data: cData, dataLen: uintptr(len(data)), owned: true}, nil
 }
 
 // NewBakeCertFromC wraps a bake_cert already configured on the C side.
@@ -288,11 +297,12 @@ func (c *BakeCert) Free() {
 		return
 	}
 	if c.data != nil {
-		C.free(c.data)
+		freeWiped(c.data, c.dataLen)
 		c.data = nil
+		c.dataLen = 0
 	}
 	if c.cert != nil {
-		C.free(unsafe.Pointer(c.cert))
+		freeWiped(unsafe.Pointer(c.cert), uintptr(C.sizeof_bake_cert))
 		c.cert = nil
 	}
 }
@@ -336,7 +346,7 @@ func NewBakeBSTS(l int, params *BignParams, settings *BakeSettings, privKey []by
 	}
 	rc := C.bakeBSTSStart(state, params.params, settings.settings, privKeyPtr, cert.cert)
 	if rc != 0 {
-		C.free(state)
+		freeWiped(state, uintptr(C.bakeBSTS_keep(C.size_t(l))))
 		return nil, errors.New("bee2: bakeBSTSStart failed")
 	}
 	return &BakeBSTS{state: state, l: l, certLen: int(cert.cert.len)}, nil
@@ -345,7 +355,7 @@ func NewBakeBSTS(l int, params *BignParams, settings *BakeSettings, privKey []by
 // Free releases the underlying C state.
 func (b *BakeBSTS) Free() {
 	if b.state != nil {
-		C.free(b.state)
+		freeWiped(b.state, uintptr(C.bakeBSTS_keep(C.size_t(b.l))))
 		b.state = nil
 	}
 }
@@ -354,6 +364,7 @@ func (b *BakeBSTS) Free() {
 func (b *BakeBSTS) Step2() ([]byte, error) {
 	out := make([]byte, b.l/2)
 	if rc := C.bakeBSTSStep2((*C.octet)(unsafe.Pointer(&out[0])), b.state); rc != 0 {
+		MemWipe(out)
 		return nil, errors.New("bee2: bakeBSTSStep2 failed")
 	}
 	return out, nil
@@ -368,6 +379,7 @@ func (b *BakeBSTS) Step3(in []byte) ([]byte, error) {
 		inPtr = (*C.octet)(unsafe.Pointer(&in[0]))
 	}
 	if rc := C.bakeBSTSStep3((*C.octet)(unsafe.Pointer(&out[0])), inPtr, b.state); rc != 0 {
+		MemWipe(out)
 		return nil, errors.New("bee2: bakeBSTSStep3 failed")
 	}
 	return out, nil
@@ -388,6 +400,7 @@ func (b *BakeBSTS) Step4(in []byte, vala unsafe.Pointer) ([]byte, error) {
 		vala, b.state,
 	)
 	if rc != 0 {
+		MemWipe(out)
 		return nil, errors.New("bee2: bakeBSTSStep4 failed")
 	}
 	return out, nil
@@ -411,6 +424,7 @@ func (b *BakeBSTS) Step5(in []byte, valb unsafe.Pointer) error {
 func (b *BakeBSTS) StepG() ([]byte, error) {
 	key := make([]byte, 32)
 	if rc := C.bakeBSTSStepG((*C.octet)(unsafe.Pointer(&key[0])), b.state); rc != 0 {
+		MemWipe(key)
 		return nil, errors.New("bee2: bakeBSTSStepG failed")
 	}
 	return key, nil
@@ -465,7 +479,7 @@ func NewBakeBPACE(l int, params *BignParams, settings *BakeSettings, password []
 		C.size_t(len(password)),
 	)
 	if rc != 0 {
-		C.free(state)
+		freeWiped(state, uintptr(C.bakeBPACE_keep(C.size_t(l))))
 		return nil, errors.New("bee2: bakeBPACEStart failed")
 	}
 	return &BakeBPACE{
@@ -479,7 +493,7 @@ func NewBakeBPACE(l int, params *BignParams, settings *BakeSettings, password []
 // Free releases the underlying C state.
 func (b *BakeBPACE) Free() {
 	if b.state != nil {
-		C.free(b.state)
+		freeWiped(b.state, uintptr(C.bakeBPACE_keep(C.size_t(b.l))))
 		b.state = nil
 	}
 }
@@ -488,6 +502,7 @@ func (b *BakeBPACE) Free() {
 func (b *BakeBPACE) Step2() ([]byte, error) {
 	out := make([]byte, b.l/8)
 	if rc := C.bakeBPACEStep2((*C.octet)(unsafe.Pointer(&out[0])), b.state); rc != 0 {
+		MemWipe(out)
 		return nil, errors.New("bee2: bakeBPACEStep2 failed")
 	}
 	return out, nil
@@ -504,6 +519,7 @@ func (b *BakeBPACE) Step3(in []byte) ([]byte, error) {
 		(*C.octet)(unsafe.Pointer(&in[0])),
 		b.state,
 	); rc != 0 {
+		MemWipe(out)
 		return nil, errors.New("bee2: bakeBPACEStep3 failed")
 	}
 	return out, nil
@@ -525,6 +541,7 @@ func (b *BakeBPACE) Step4(in []byte) ([]byte, error) {
 		(*C.octet)(unsafe.Pointer(&in[0])),
 		b.state,
 	); rc != 0 {
+		MemWipe(out)
 		return nil, errors.New("bee2: bakeBPACEStep4 failed")
 	}
 	return out, nil
@@ -554,6 +571,7 @@ func (b *BakeBPACE) Step5(in []byte) ([]byte, error) {
 		(*C.octet)(unsafe.Pointer(&in[0])),
 		b.state,
 	); rc != 0 {
+		MemWipe(out)
 		return nil, errors.New("bee2: bakeBPACEStep5 failed")
 	}
 	return out, nil
@@ -580,6 +598,7 @@ func (b *BakeBPACE) Step6(in []byte) error {
 func (b *BakeBPACE) StepG() ([]byte, error) {
 	key := make([]byte, 32)
 	if rc := C.bakeBPACEStepG((*C.octet)(unsafe.Pointer(&key[0])), b.state); rc != 0 {
+		MemWipe(key)
 		return nil, errors.New("bee2: bakeBPACEStepG failed")
 	}
 	return key, nil

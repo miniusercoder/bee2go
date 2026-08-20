@@ -94,8 +94,12 @@ func TestRngESReadProbe(t *testing.T) {
 
 // An unknown source name must report an error rather than succeed silently.
 func TestRngESReadUnknownSource(t *testing.T) {
-	if _, err := RngESRead(make([]byte, 16), "no-such-source"); err == nil {
+	buf := bytes.Repeat([]byte{0xA5}, 16)
+	if _, err := RngESRead(buf, "no-such-source"); err == nil {
 		t.Error("unknown source should return an error")
+	}
+	if !bytes.Equal(buf, make([]byte, len(buf))) {
+		t.Fatalf("failed entropy buffer was not wiped: %x", buf)
 	}
 }
 

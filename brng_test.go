@@ -133,6 +133,18 @@ func TestBrngCTRRandUpdatesIV(t *testing.T) {
 	}
 }
 
+func TestBrngCTRRandAcceptsZeroAndRejectsNegativeCount(t *testing.T) {
+	H := beltHBytes()
+	if out, nextIV, err := BrngCTRRand(0, H[128:160], H[192:224]); err != nil {
+		t.Fatalf("zero count: %v", err)
+	} else if len(out) != 0 || len(nextIV) != 32 {
+		t.Fatalf("zero count lengths = %d, %d", len(out), len(nextIV))
+	}
+	if _, _, err := BrngCTRRand(-1, H[128:160], H[192:224]); err == nil {
+		t.Fatal("negative count should be rejected")
+	}
+}
+
 // Wrong key length must be rejected.
 func TestBrngCTRBadKey(t *testing.T) {
 	if _, err := NewBrngCTR(make([]byte, 16), nil); err == nil {
@@ -224,6 +236,18 @@ func TestBrngHMACRandMatchesStreaming(t *testing.T) {
 
 	if !bytes.Equal(out1, out2) {
 		t.Fatal("BrngHMACRand differs from streaming API")
+	}
+}
+
+func TestBrngHMACRandAcceptsZeroAndRejectsNegativeCount(t *testing.T) {
+	H := beltHBytes()
+	if out, err := BrngHMACRand(0, H[128:160], H[:32]); err != nil {
+		t.Fatalf("zero count: %v", err)
+	} else if len(out) != 0 {
+		t.Fatalf("zero count length = %d", len(out))
+	}
+	if _, err := BrngHMACRand(-1, H[128:160], H[:32]); err == nil {
+		t.Fatal("negative count should be rejected")
 	}
 }
 

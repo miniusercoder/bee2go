@@ -3,7 +3,17 @@ package bee2go
 /*
 #cgo CFLAGS: -I${SRCDIR}/bee2/include
 #cgo LDFLAGS: -L${SRCDIR}/bee2/build/src -lbee2_static
+#include <stdint.h>
+#include <stdlib.h>
 #include "bee2/core/mem.h"
+
+// mem_wipe_addr accepts the destination as an integer so cgo does not apply
+// its recursive Go-pointer check to the surrounding Go allocation. The
+// caller passes only the exact byte range to overwrite, pins the allocation
+// and keeps it alive until this synchronous call returns.
+static void mem_wipe_addr(uintptr_t addr, size_t count) {
+	memWipe((void*)addr, count);
+}
 */
 import "C"
 
@@ -26,7 +36,27 @@ func MemWipe(buf []byte) {
 		return
 	}
 
-	C.memWipe(unsafe.Pointer(unsafe.SliceData(buf)), C.size_t(len(buf)))
+	var pinner runtime.Pinner
+	pinner.Pin(unsafe.SliceData(buf))
+	defer pinner.Unpin()
+	addr := uintptr(unsafe.Pointer(unsafe.SliceData(buf)))
+	C.mem_wipe_addr(C.uintptr_t(addr), C.size_t(len(buf)))
 	// Keep the Go backing array reachable until the C call has completed.
 	runtime.KeepAlive(buf)
+}
+
+// freeWiped overwrites an owned C allocation before returning it to malloc.
+// Callers must pass the exact allocation size used for ptr.
+func freeWiped(ptr unsafe.Pointer, size uintptr) {
+	if ptr == nil {
+		return
+	}
+	wipePointer(ptr, size)
+	C.free(ptr)
+}
+
+func wipePointer(ptr unsafe.Pointer, size uintptr) {
+	if ptr != nil && size > 0 {
+		C.memWipe(ptr, C.size_t(size))
+	}
 }
