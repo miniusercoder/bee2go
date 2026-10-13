@@ -85,6 +85,7 @@ static void* make_prng_echo_state(const octet* seed, size_t seed_len) {
 import "C"
 import (
 	"errors"
+	"fmt"
 	"unsafe"
 )
 
@@ -547,6 +548,9 @@ func (b *BakeBPACE) Step4(in []byte) ([]byte, error) {
 	return out, nil
 }
 
+// ErrBPACEAuthentication reports a failed peer key confirmation (ERR_AUTH).
+var ErrBPACEAuthentication = errors.New("bee2: BPACE authentication failed")
+
 // Step5 is called by party A: processes M3 and produces M4 when party A
 // confirms the key.
 func (b *BakeBPACE) Step5(in []byte) ([]byte, error) {
@@ -572,7 +576,10 @@ func (b *BakeBPACE) Step5(in []byte) ([]byte, error) {
 		b.state,
 	); rc != 0 {
 		MemWipe(out)
-		return nil, errors.New("bee2: bakeBPACEStep5 failed")
+		if rc == C.ERR_AUTH {
+			return nil, ErrBPACEAuthentication
+		}
+		return nil, fmt.Errorf("bee2: bakeBPACEStep5 failed: %d", uint32(rc))
 	}
 	return out, nil
 }
