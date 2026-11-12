@@ -13,6 +13,7 @@ deps:
 	@command -v go >/dev/null || (echo "go not found" && exit 1)
 	@command -v cmake >/dev/null || (echo "cmake not found" && exit 1)
 	@command -v git >/dev/null || (echo "git not found" && exit 1)
+	@command -v patch >/dev/null || (echo "patch not found" && exit 1)
 
 setup: deps
 	git submodule update --init --recursive

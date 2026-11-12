@@ -3,3 +3,4 @@
 
 /build/
 /.serena/
+/internal/native/build_id.h
