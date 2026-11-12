@@ -1,189 +1,36 @@
-package bee2go
+// Package selftest runs diagnostic known-answer tests for selected bee2 algorithms.
+// Passing these checks is not a certification of a deployment.
+package selftest
 
 import (
 	"bytes"
 	"encoding/hex"
-	"errors"
 	"fmt"
+	"github.com/miniusercoder/bee2go/v3/bake"
+	"github.com/miniusercoder/bee2go/v3/belt"
+	"github.com/miniusercoder/bee2go/v3/bign"
+	"github.com/miniusercoder/bee2go/v3/brng"
+	"github.com/miniusercoder/bee2go/v3/internal/native"
 	"strings"
 )
 
-// Bee2SelfTest describes one externally callable bee2 known-answer test.
-type Bee2SelfTest struct {
-	Name string
-	Run  func() error
-}
-
-// Bee2SelfTestResult is the result of one self-test invocation.
-type Bee2SelfTestResult struct {
-	Name string
-	Err  error
-}
-
-// Passed reports whether the self-test completed successfully.
-func (r Bee2SelfTestResult) Passed() bool { return r.Err == nil }
-
-// Bee2SelfTests returns the supported externally callable self-tests.
-func Bee2SelfTests() []Bee2SelfTest {
-	return []Bee2SelfTest{
-		{Name: "bpace", Run: SelfTestBPACE},
-		{Name: "belt-ecb", Run: SelfTestBeltECB},
-		{Name: "bake-swu", Run: SelfTestBakeSWU},
-		{Name: "bake-kdf", Run: SelfTestBakeKDF},
-		{Name: "bign-val-pubkey", Run: SelfTestBignValPubkey},
-		{Name: "bign-gen-keypair", Run: SelfTestBignGenKeypair},
-		{Name: "bake-dh", Run: SelfTestBakeDH},
-		{Name: "belt-hash", Run: SelfTestBeltHash},
-		{Name: "belt-keyrep", Run: SelfTestBeltKeyrep},
-		{Name: "brng-ctr-hbel", Run: SelfTestBrngCTRHBEL},
-	}
-}
-
-// RunBee2SelfTests runs all self-tests and returns one result per test.
-func RunBee2SelfTests() []Bee2SelfTestResult {
-	tests := Bee2SelfTests()
-	results := make([]Bee2SelfTestResult, 0, len(tests))
-	for _, test := range tests {
-		results = append(results, Bee2SelfTestResult{
-			Name: test.Name,
-			Err:  test.Run(),
-		})
-	}
-	return results
-}
-
-// CheckBee2SelfTests runs all self-tests and returns an aggregate error on
-// failure. Use RunBee2SelfTests when the caller needs per-test details.
-func CheckBee2SelfTests() error {
-	results := RunBee2SelfTests()
-	var failed []string
-	for _, result := range results {
-		if result.Err != nil {
-			failed = append(failed, fmt.Sprintf("%s: %v", result.Name, result.Err))
-		}
-	}
-	if len(failed) > 0 {
-		return errors.New(strings.Join(failed, "; "))
-	}
-	return nil
-}
-
-// SelfTestBPACE runs the STB 34.101.66 appendix B.4 BPACE KAT.
-func SelfTestBPACE() error {
-	params, err := NewBignParams256v1()
-	if err != nil {
-		return err
-	}
-	defer params.Free()
-
-	seedA := mustDecodeHex("AD1362A8F9A3D42FBE1B8E6F1C88AAD50A4E8298BE0839E46F19409F637F4415572251DD0D39284F0F0390D93BBCE9EC")
-	defer MemWipe(seedA)
-	rngA, err := NewBakeEchoRNG(seedA)
-	if err != nil {
-		return err
-	}
-	defer rngA.Free()
-	seedB := mustDecodeHex("0F51D91347617C20BD4AB07AEF4F26A1F81B29D571F6452FF8B2B97F57E18A58BC946FEE45EAB32B06FCAC23A33F422B")
-	defer MemWipe(seedB)
-	rngB, err := NewBakeEchoRNG(seedB)
-	if err != nil {
-		return err
-	}
-	defer rngB.Free()
-
-	settingsA, err := NewBakeSettings(true, true, nil, nil, rngA.Func(), rngA.State())
-	if err != nil {
-		return err
-	}
-	defer settingsA.Free()
-	settingsB, err := NewBakeSettings(true, true, nil, nil, rngB.Func(), rngB.State())
-	if err != nil {
-		return err
-	}
-	defer settingsB.Free()
-
-	password := []byte("8086")
-	defer MemWipe(password)
-	stA, err := NewBakeBPACE(128, params, settingsA, password)
-	if err != nil {
-		return err
-	}
-	defer stA.Free()
-	stB, err := NewBakeBPACE(128, params, settingsB, password)
-	if err != nil {
-		return err
-	}
-	defer stB.Free()
-
-	m1, err := stB.Step2()
-	defer MemWipe(m1)
-	if err != nil {
-		return err
-	}
-	if err := expectHex("BPACE M1", m1, "991E81690B4C687C86BFD11CEBDA2421"); err != nil {
-		return err
-	}
-	m2, err := stA.Step3(m1)
-	defer MemWipe(m2)
-	if err != nil {
-		return err
-	}
-	if err := expectHex("BPACE M2", m2, "CE41B54DC13A28BDF74CEBD1908818026B13ACBB086FB87618BCC2EF20A3FA89475654CB367E670A2441730B24B8AB318209C81C9640C47A77B28E90AB9211A1DF21DE878191C314061E347C5125244F"); err != nil {
-		return err
-	}
-	m3, err := stB.Step4(m2)
-	defer MemWipe(m3)
-	if err != nil {
-		return err
-	}
-	if err := expectHex("BPACE M3", m3, "CD3D6487DC4EEB23456978186A069C71375D75C2DF198BAD1E61EEA0DBBFF7373D1D9ED17A7AD460AA420FB11952D58078BC1CC9F408F2E258FDE97F22A44C6F28FD4859D78BA971"); err != nil {
-		return err
-	}
-	m4, err := stA.Step5(m3)
-	defer MemWipe(m4)
-	if err != nil {
-		return err
-	}
-	if err := expectHex("BPACE M4", m4, "5D93FD9A7CB863AA"); err != nil {
-		return err
-	}
-	if err := stB.Step6(m4); err != nil {
-		return err
-	}
-
-	keyA, err := stA.StepG()
-	defer MemWipe(keyA)
-	if err != nil {
-		return err
-	}
-	keyB, err := stB.StepG()
-	defer MemWipe(keyB)
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(keyA, keyB) {
-		return fmt.Errorf("BPACE keys differ")
-	}
-	return expectHex("BPACE key", keyA, "DAC4D8F411F9C523D28BBAAB32A5270E4DFA1F0F757EF8E0F30AF08FBDE1E7F4")
-}
-
 // SelfTestBeltECB runs the STB 34.101.31 belt-ECB KATs A.9 and A.10.
 func SelfTestBeltECB() error {
-	h := BeltH()
-	defer MemWipe(h)
+	h := beltHBytes()
+	defer native.Wipe(h)
 	keyE := h[128:160]
 	keyD := h[160:192]
 
-	enc48, err := BeltECBEncr(h[:48], keyE)
-	defer MemWipe(enc48)
+	enc48, err := belt.ECBEncrypt(h[:48], keyE)
+	defer native.Wipe(enc48)
 	if err != nil {
 		return err
 	}
 	if err := expectHex("belt-ECB A.9-1", enc48, "69CCA1C93557C9E3D66BC3E0FA88FA6E5F23102EF109710775017F73806DA9DC46FB2ED2CE771F26DCB5E5D1569F9AB0"); err != nil {
 		return err
 	}
-	dec48, err := BeltECBDecr(enc48, keyE)
-	defer MemWipe(dec48)
+	dec48, err := belt.ECBDecrypt(enc48, keyE)
+	defer native.Wipe(dec48)
 	if err != nil {
 		return err
 	}
@@ -191,16 +38,16 @@ func SelfTestBeltECB() error {
 		return fmt.Errorf("belt-ECB A.9-1 decrypt mismatch")
 	}
 
-	enc47, err := BeltECBEncr(h[:47], keyE)
-	defer MemWipe(enc47)
+	enc47, err := belt.ECBEncrypt(h[:47], keyE)
+	defer native.Wipe(enc47)
 	if err != nil {
 		return err
 	}
 	if err := expectHex("belt-ECB A.9-2", enc47, "69CCA1C93557C9E3D66BC3E0FA88FA6E36F00CFED6D1CA1498C12798F4BEB2075F23102EF109710775017F73806DA9"); err != nil {
 		return err
 	}
-	dec47, err := BeltECBDecr(enc47, keyE)
-	defer MemWipe(dec47)
+	dec47, err := belt.ECBDecrypt(enc47, keyE)
+	defer native.Wipe(dec47)
 	if err != nil {
 		return err
 	}
@@ -208,16 +55,16 @@ func SelfTestBeltECB() error {
 		return fmt.Errorf("belt-ECB A.9-2 decrypt mismatch")
 	}
 
-	got, err := BeltECBDecr(h[64:112], keyD)
-	defer MemWipe(got)
+	got, err := belt.ECBDecrypt(h[64:112], keyD)
+	defer native.Wipe(got)
 	if err != nil {
 		return err
 	}
 	if err := expectHex("belt-ECB A.10-1", got, "0DC5300600CAB840B38448E5E993F421E55A239F2AB5C5D5FDB6E81B40938E2A54120CA3E6E19C7AD750FC3531DAEAB7"); err != nil {
 		return err
 	}
-	MemWipe(got)
-	got, err = BeltECBDecr(h[64:100], keyD)
+	native.Wipe(got)
+	got, err = belt.ECBDecrypt(h[64:100], keyD)
 	if err != nil {
 		return err
 	}
@@ -226,15 +73,15 @@ func SelfTestBeltECB() error {
 
 // SelfTestBakeSWU runs the bakeSWU KAT from STB 34.101.66 appendix B.4 data.
 func SelfTestBakeSWU() error {
-	params, err := NewBignParams256v1()
+	params, err := bign.StandardParams("1.2.112.0.2.0.34.101.45.3.1")
 	if err != nil {
 		return err
 	}
-	defer params.Free()
+	defer params.Close()
 	msg := mustDecodeHex("AD1362A8F9A3D42FBE1B8E6F1C88AAD50F51D91347617C20BD4AB07AEF4F26A1")
-	defer MemWipe(msg)
-	pt, err := BakeSWU(params, msg)
-	defer MemWipe(pt)
+	defer native.Wipe(msg)
+	pt, err := bake.SWU(params, msg)
+	defer native.Wipe(pt)
 	if err != nil {
 		return err
 	}
@@ -245,18 +92,18 @@ func SelfTestBakeSWU() error {
 func SelfTestBakeKDF() error {
 	secret := mustDecodeHex("723356E335ED70620FFB1842752092C32603EB666040920587D800575BECFC42")
 	iv := mustDecodeHex("6B13ACBB086FB87618BCC2EF20A3FA89475654CB367E670A2441730B24B8AB31CD3D6487DC4EEB23456978186A069C71375D75C2DF198BAD1E61EEA0DBBFF737")
-	defer MemWipe(secret)
-	defer MemWipe(iv)
-	key0, err := BakeKDF(secret, iv, 0)
-	defer MemWipe(key0)
+	defer native.Wipe(secret)
+	defer native.Wipe(iv)
+	key0, err := bake.KDF(secret, iv, 0)
+	defer native.Wipe(key0)
 	if err != nil {
 		return err
 	}
 	if err := expectHex("bakeKDF num=0", key0, "DAC4D8F411F9C523D28BBAAB32A5270E4DFA1F0F757EF8E0F30AF08FBDE1E7F4"); err != nil {
 		return err
 	}
-	key1, err := BakeKDF(secret, iv, 1)
-	defer MemWipe(key1)
+	key1, err := bake.KDF(secret, iv, 1)
+	defer native.Wipe(key1)
 	if err != nil {
 		return err
 	}
@@ -265,24 +112,24 @@ func SelfTestBakeKDF() error {
 
 // SelfTestBignValPubkey validates the bign public key from STB 34.101.45 G.1.
 func SelfTestBignValPubkey() error {
-	params, err := NewBignParams256v1()
+	params, err := bign.StandardParams("1.2.112.0.2.0.34.101.45.3.1")
 	if err != nil {
 		return err
 	}
-	defer params.Free()
+	defer params.Close()
 	pub := mustDecodeHex("BD1A5650179D79E03FCEE49D4C2BD5DDF54CE46D0CF11E4FF87BF7A890857FD07AC6A60361E8C8173491686D461B2826190C2EDA5909054A9AB84D2AB9D99A90")
-	defer MemWipe(pub)
-	if err := BignPubkeyVal(params, pub); err != nil {
+	defer native.Wipe(pub)
+	if err := bign.ValidatePublicKey(params, pub); err != nil {
 		return err
 	}
 	bad := make([]byte, len(pub))
-	defer MemWipe(bad)
+	defer native.Wipe(bad)
 	copy(bad, pub)
 	bad[0] ^= 0xFF
-	if err := BignPubkeyVal(params, bad); err == nil {
+	if err := bign.ValidatePublicKey(params, bad); err == nil {
 		return fmt.Errorf("corrupted bign public key was accepted")
 	}
-	if err := BignPubkeyVal(params, make([]byte, params.PubKeyLen())); err == nil {
+	if err := bign.ValidatePublicKey(params, make([]byte, 64)); err == nil {
 		return fmt.Errorf("zero bign public key was accepted")
 	}
 	return nil
@@ -290,14 +137,14 @@ func SelfTestBignValPubkey() error {
 
 // SelfTestBignGenKeypair runs the deterministic bign keypair KAT G.1.
 func SelfTestBignGenKeypair() error {
-	params, err := NewBignParams256v1()
+	params, err := bign.StandardParams("1.2.112.0.2.0.34.101.45.3.1")
 	if err != nil {
 		return err
 	}
-	defer params.Free()
-	priv, pub, err := bignKeypairGenBeltH(params)
-	defer MemWipe(priv)
-	defer MemWipe(pub)
+	defer params.Close()
+	priv, pub, err := native.KATBignKeypair()
+	defer native.Wipe(priv)
+	defer native.Wipe(pub)
 	if err != nil {
 		return err
 	}
@@ -307,11 +154,11 @@ func SelfTestBignGenKeypair() error {
 	if err := expectHex("bign pubkey", pub, "BD1A5650179D79E03FCEE49D4C2BD5DDF54CE46D0CF11E4FF87BF7A890857FD07AC6A60361E8C8173491686D461B2826190C2EDA5909054A9AB84D2AB9D99A90"); err != nil {
 		return err
 	}
-	if err := BignPubkeyVal(params, pub); err != nil {
+	if err := bign.ValidatePublicKey(params, pub); err != nil {
 		return err
 	}
-	pub2, err := BignPubkeyCalc(params, priv)
-	defer MemWipe(pub2)
+	pub2, err := bign.PublicKey(params, priv)
+	defer native.Wipe(pub2)
 	if err != nil {
 		return err
 	}
@@ -324,15 +171,15 @@ func SelfTestBignGenKeypair() error {
 // SelfTestBakeDH verifies bakeDH as the bignDH alias, including the upstream
 // generator-point KAT.
 func SelfTestBakeDH() error {
-	params, err := NewBignParams256v1()
+	params, err := bign.StandardParams("1.2.112.0.2.0.34.101.45.3.1")
 	if err != nil {
 		return err
 	}
-	defer params.Free()
+	defer params.Close()
 	priv := mustDecodeHex("1F66B5B84B7339674533F0329C74F21834281FED0732429E0C79235FC273E269")
-	defer MemWipe(priv)
-	shared, err := bignDHBeltG(params, priv, params.PubKeyLen())
-	defer MemWipe(shared)
+	defer native.Wipe(priv)
+	shared, err := native.KATBakeDH(priv)
+	defer native.Wipe(shared)
 	if err != nil {
 		return err
 	}
@@ -340,25 +187,25 @@ func SelfTestBakeDH() error {
 		return err
 	}
 
-	privA, pubA, err := BignKeypairGen(params)
-	defer MemWipe(privA)
-	defer MemWipe(pubA)
+	privA, pubA, err := bign.GenerateKey(params, nil)
+	defer native.Wipe(privA)
+	defer native.Wipe(pubA)
 	if err != nil {
 		return err
 	}
-	privB, pubB, err := BignKeypairGen(params)
-	defer MemWipe(privB)
-	defer MemWipe(pubB)
+	privB, pubB, err := bign.GenerateKey(params, nil)
+	defer native.Wipe(privB)
+	defer native.Wipe(pubB)
 	if err != nil {
 		return err
 	}
-	keyA, err := BakeDH(params, privA, pubB, 32)
-	defer MemWipe(keyA)
+	keyA, err := bake.DH(params, privA, pubB, 32)
+	defer native.Wipe(keyA)
 	if err != nil {
 		return err
 	}
-	keyB, err := BakeDH(params, privB, pubA, 32)
-	defer MemWipe(keyB)
+	keyB, err := bake.DH(params, privB, pubA, 32)
+	defer native.Wipe(keyB)
 	if err != nil {
 		return err
 	}
@@ -370,8 +217,8 @@ func SelfTestBakeDH() error {
 
 // SelfTestBeltHash runs the STB 34.101.31 belt-hash KATs A.23.
 func SelfTestBeltHash() error {
-	h := BeltH()
-	defer MemWipe(h)
+	h := beltHBytes()
+	defer native.Wipe(h)
 	cases := []struct {
 		n    int
 		want string
@@ -381,8 +228,8 @@ func SelfTestBeltHash() error {
 		{48, "9D02EE446FB6A29FE5C982D4B13AF9D3E90861BC4CEF27CF306BFB0B174A154A"},
 	}
 	for _, tc := range cases {
-		got, err := BeltHash(h[:tc.n])
-		defer MemWipe(got)
+		got, err := belt.Hash(h[:tc.n])
+		defer native.Wipe(got)
 		if err != nil {
 			return err
 		}
@@ -390,8 +237,8 @@ func SelfTestBeltHash() error {
 			return err
 		}
 		expected := mustDecodeHex(tc.want)
-		defer MemWipe(expected)
-		ok, err := BeltHashVerify(h[:tc.n], expected)
+		defer native.Wipe(expected)
+		ok, err := belt.HashVerify(h[:tc.n], expected)
 		if err != nil {
 			return err
 		}
@@ -399,8 +246,8 @@ func SelfTestBeltHash() error {
 			return fmt.Errorf("belt-hash verify failed for n=%d", tc.n)
 		}
 	}
-	prefix, err := BeltHashN(h[:32], 13)
-	defer MemWipe(prefix)
+	prefix, err := belt.HashN(h[:32], 13)
+	defer native.Wipe(prefix)
 	if err != nil {
 		return err
 	}
@@ -409,10 +256,10 @@ func SelfTestBeltHash() error {
 
 // SelfTestBeltKeyrep runs the STB 34.101.31 belt-keyrep KATs A.28.
 func SelfTestBeltKeyrep() error {
-	h := BeltH()
-	defer MemWipe(h)
+	h := beltHBytes()
+	defer native.Wipe(h)
 	level := make([]byte, 12)
-	defer MemWipe(level)
+	defer native.Wipe(level)
 	level[0] = 1
 	header := h[32:48]
 	src := h[128:160]
@@ -425,8 +272,8 @@ func SelfTestBeltKeyrep() error {
 		{32, "76E166E6AB21256B6739397B672B879614B81CF05955FC3AB09343A745C48F77"},
 	}
 	for _, tc := range cases {
-		got, err := BeltKRP(src, level, header, tc.m)
-		defer MemWipe(got)
+		got, err := belt.KRP(src, level, header, tc.m)
+		defer native.Wipe(got)
 		if err != nil {
 			return err
 		}
@@ -439,40 +286,43 @@ func SelfTestBeltKeyrep() error {
 
 // SelfTestBrngCTRHBEL runs the STB 34.101.47 brng-CTR-hbelt KAT B.2.
 func SelfTestBrngCTRHBEL() error {
-	h := BeltH()
-	defer MemWipe(h)
+	h := beltHBytes()
+	defer native.Wipe(h)
 	key := h[128:160]
 	iv := h[192:224]
 
-	r, err := NewBrngCTR(key, iv)
+	r, err := brng.NewCTR(key, iv)
 	if err != nil {
 		return err
 	}
-	defer r.Free()
-	buf := BeltH()
-	defer MemWipe(buf)
+	defer r.Close()
+	buf := beltHBytes()
+	defer native.Wipe(buf)
 	for _, chunk := range [][]byte{buf[:32], buf[32:64], buf[64:96]} {
-		if _, err := r.Read(chunk); err != nil {
+		if err := r.Transform(chunk); err != nil {
 			return err
 		}
 	}
-	gotIV := r.IV()
-	defer MemWipe(gotIV)
+	gotIV, err := r.IV()
+	if err != nil {
+		return err
+	}
+	defer native.Wipe(gotIV)
 	if err := expectHex("brng-CTR updated IV", gotIV, "C132971343FC9A48A02A885F194B09A17ECDA4D01544AF8CA58450BF66D2E88A"); err != nil {
 		return err
 	}
-	if _, err := r.Read(buf[96:]); err != nil {
+	if err := r.Transform(buf[96:]); err != nil {
 		return err
 	}
 	if err := expectHex("brng-CTR stream", buf, "1F66B5B84B7339674533F0329C74F21834281FED0732429E0C79235FC273E2694C0E74B2CD5811AD21F23DE7E0FA742C3ED6EC483C461CE15C33A77AA308B7D20F51D91347617C20BD4AB07AEF4F26A1AD1362A8F9A3D42FBE1B8E6F1C88AAD50A4E8298BE0839E46F19409F637F4415572251DD0D39284F0F0390D93BBCE9ECF81B29D571F6452FF8B2B97F57E18A58BC946FEE45EAB32B06FCAC23A33F422BC431B41BBE8E802288737ACF45A29251FC736A3C6F478F77A7ED271D5EEDAA58E98309303623AFD33017C42BC6D43C15438446EE57D46E412EFC0B61B5FBA39ED37BABE50BFEEB8ED162BB1393D46FB43534A201EB3B1A5C085DC5068ED6F89A"); err != nil {
 		return err
 	}
 
-	h1 := BeltH()
-	defer MemWipe(h1)
+	h1 := beltHBytes()
+	defer native.Wipe(h1)
 	buf1 := h1[:96]
-	iv1, err := BrngCTRRandInto(buf1, key, iv)
-	defer MemWipe(iv1)
+	iv1, err := brng.CTRTransform(buf1, key, iv)
+	defer native.Wipe(iv1)
 	if err != nil {
 		return err
 	}
@@ -495,7 +345,7 @@ func mustDecodeHex(s string) []byte {
 
 func expectHex(name string, got []byte, wantHex string) error {
 	want := mustDecodeHex(wantHex)
-	defer MemWipe(want)
+	defer native.Wipe(want)
 	if !bytes.Equal(got, want) {
 		return fmt.Errorf("%s mismatch", name)
 	}

@@ -2,20 +2,19 @@ package main
 
 import (
 	"fmt"
+	"github.com/miniusercoder/bee2go/v3/selftest"
 	"os"
-
-	bee2go "github.com/miniusercoder/bee2go/v3/internal/staging"
 )
 
 func main() {
 	failed := false
-	for _, result := range bee2go.RunBee2SelfTests() {
-		if result.Passed() {
+	for _, result := range selftest.Run() {
+		if result.Err == nil {
 			fmt.Printf("PASS %s\n", result.Name)
-			continue
+		} else {
+			failed = true
+			fmt.Printf("FAIL %s: %v\n", result.Name, result.Err)
 		}
-		failed = true
-		fmt.Printf("FAIL %s: %v\n", result.Name, result.Err)
 	}
 	if failed {
 		os.Exit(1)
