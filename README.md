@@ -1,50 +1,214 @@
-# bee2go v3
+# bee2go
 
-Go bindings for [bee2](https://github.com/agievich/bee2), a C implementation of cryptographic algorithms. The v3 module path is `github.com/miniusercoder/bee2go/v3`; algorithms live in family packages such as `belt`, `bash`, `bign`, `bake`, `bels`, `botp`, `bpki`, `brng`, `btok`, `dstu`, `g12s`, `pfok`, and `stb99`. `rng` provides access to the bee2 generator and entropy diagnostics; `selftest` runs selected diagnostic vectors.
+Go-обёртки для [bee2](https://github.com/agievich/bee2) — C-библиотеки белорусских и других криптографических алгоритмов.
 
-**Release status:** v3 is under integration and has not been published. See [algorithm coverage](docs/algorithm-coverage.md) and [release status](docs/releases.md) for remaining verification, including BAuth interoperability and the tracked backend patch. Do not treat the current tree as a completed release.
+Ветка `main` содержит API v3: модуль `github.com/miniusercoder/bee2go/v3`, отдельные пакеты по семействам алгоритмов. Прежний API и старый путь импорта сохранены в ветке [`legacy`](https://github.com/miniusercoder/bee2go/tree/legacy) и снимке `legacy-2026-11-12`.
 
-## Build from source
+Библиотека предоставляет высокоуровневые обёртки для:
 
-Linux amd64 with CGo is the initial verified environment. Install Go 1.22 or newer, a C compiler, CMake, Git, and the `patch` utility. Build the exact bee2 version pinned by the repository gitlink:
+- `bash`: хеш и программируемый криптографический автомат
+- `belt`: блочное шифрование, режимы шифрования, хеш, MAC, AEAD, HMAC, PBKDF2, преобразование и обёртка ключей
+- `bign`: параметры, генерация ключей, DH, подписи, транспорт ключей и подписи на основе идентичности; профили 128/192/256 и экспериментальный BIGN96
+- `bake`: аутентифицированная выработка ключа BMQV, BSTS и BPACE
+- `brng`: детерминированные генераторы случайных данных CTR и HMAC
+- `rng`: источники энтропии, генератор случайных чисел и статистические тесты FIPS
+- `bels`: разделение и восстановление секрета
+- `botp`: одноразовые пароли HOTP, TOTP и OCRA
+- `bpki`: защищённые контейнеры личных ключей и долей секрета, обработка CSR
+- `btok`: состояния пароля, сертификаты CVC, защищённый обмен командами и ответами, протокол BAuth
+- `dstu` и `g12s`: параметры, ключи, подписи и их проверка
+- `pfok`: параметры, ключи и согласование ключа DH/MTI
+- `stb99`: генерация и проверка параметров СТБ 1176.2-99
+- `selftest`: запуск диагностических тестов с известными ответами
 
-```sh
+Полный перечень возможностей и их проверок — в [матрице покрытия](docs/algorithm-coverage.md). Общие вспомогательные утилиты и внутренний математический аппарат bee2 не входят в публичный API.
+
+## Требования
+
+- Go 1.22+ с включённым CGo
+- Тулчейн C-компилятора
+- CMake, Make, Git и утилита `patch`
+- Исходники `bee2` как git submodule в `./bee2`
+
+Проверенная платформа — Linux amd64.
+
+## Быстрый старт
+
+### 1. Клонирование
+
+```bash
 git clone --recurse-submodules https://github.com/miniusercoder/bee2go.git
 cd bee2go
+```
+
+Если репозиторий уже был клонирован без submodule:
+
+```bash
 git submodule update --init --recursive
+```
+
+### 2. Подготовка и запуск
+
+```bash
+make setup
+make run
+```
+
+Это:
+
+- подготовит submodule на закреплённой в репозитории ревизии;
+- соберёт статическую библиотеку `bee2`;
+- запустит демонстрационное приложение `cmd/demo`.
+
+### 3. Запуск тестов
+
+```bash
+make test
+```
+
+Тесты оригинальной C-библиотеки и диагностические KAT:
+
+```bash
+make test-c
+go run ./cmd/selftest
+```
+
+### 4. Ручной режим (без Makefile)
+
+Сборка статической библиотеки bee2:
+
+```bash
 bash scripts/build_bee2.sh
-go test ./...
 ```
 
-The build script checks that the bee2 checkout matches the gitlink and has no tracked changes, extracts it into a generated source directory, applies the [tracked backend patch](patches/README.md), and builds the static library and upstream tests under `build/configs/`; `build/bee2` points to the selected configuration. `go get` alone does not compile this native library. For local consumers, a Go workspace can include this checkout after its native build. Do not update the submodule independently of the pinned gitlink.
+Запуск тестов:
 
-Run `make test-c` for the upstream C test suite, and `go run ./cmd/selftest` for the selected diagnostics. Passing diagnostics is not certification. `make test` and `go test ./...` run the Go suite; additional race, fuzz, slow, sanitizer, and integration checks are tracked in the coverage and release documents.
-
-## Hash and sign a digest
-
-```go
-package main
-
-import (
-    "fmt"
-    "log"
-
-    "github.com/miniusercoder/bee2go/v3/belt"
-    "github.com/miniusercoder/bee2go/v3/bign"
-)
-
-func main() {
-    digest, err := belt.Hash([]byte("hello"))
-    if err != nil { log.Fatal(err) }
-    private, public, err := bign.Profile128.GenerateKey(nil)
-    if err != nil { log.Fatal(err) }
-    signature, err := bign.Profile128.SignDigestDeterministic(digest, private, nil)
-    if err != nil { log.Fatal(err) }
-    if err := bign.Profile128.VerifyDigest(digest, signature, public); err != nil { log.Fatal(err) }
-    fmt.Println("signature verified")
-}
+```bash
+go test ./... -v
 ```
 
-BIGN signing consumes an already computed digest; it does not hash a message. A nil entropy reader uses `crypto/rand.Reader` as a seed source. For streaming hashes and other stateful objects, call `Close` when finished. Objects require caller synchronization. DWP/CHE streaming decryption buffers input and releases plaintext only after authentication; configure its input limit and use a fresh IV for every message. `bels` shares are not authenticated.
+Сборка находится в `build/`; `build/bee2` указывает на выбранную конфигурацию. Скрипт проверяет ревизию и состояние submodule, собирает закреплённые исходники с [явно указанным исправлением BAuth](patches/README.md) и учитывает компилятор, флаги и patch при выборе конфигурации.
 
-See [examples](examples/), [architecture](docs/architecture.md), and the [v3 migration guide](docs/migration-v3.md). The license is in [LICENCE](LICENCE).
+## Установка
+
+Поддерживаемый формат установки — работа из исходников репозитория с локальной сборкой `bee2`.
+
+Используйте шаги из раздела «Быстрый старт»:
+
+- `make setup`
+- `make run`
+- `make test`
+
+Один `go get` не собирает нативную C-библиотеку. Для локального подключения к приложению используйте Go Workspace, как показано ниже.
+
+## Команды Makefile
+
+- `make setup` — подготовить submodule и собрать `bee2`
+- `make build-bee2` — собрать закреплённую версию `bee2`
+- `make run` — запустить демонстрационное приложение `cmd/demo`
+- `make test` — собрать `bee2` и запустить Go-тесты
+- `make test-c` — собрать `bee2` и запустить оригинальные C-тесты
+- `make clean` — удалить артефакты сборки из `build/`
+
+## Использование
+
+### Подключение к приложению через Go Workspace (`go work`)
+
+Этот вариант не требует правок `go.mod` вашего приложения и удобен для локальной разработки.
+
+1. Разместите ваш проект и `bee2go` рядом:
+
+   ```text
+   workspace/
+     my-app/
+     bee2go/
+   ```
+
+2. Подготовьте `bee2go`:
+
+   ```bash
+   cd bee2go
+   make setup
+   ```
+
+3. Создайте workspace из каталога приложения:
+
+   ```bash
+   cd ../my-app
+   go work init . ../bee2go
+   ```
+
+4. Добавьте импорт нужного семейства алгоритмов:
+
+   ```go
+   import "github.com/miniusercoder/bee2go/v3/belt"
+   ```
+
+5. Минимальный пример использования — belt-hash:
+
+   ```go
+   package main
+
+   import (
+       "fmt"
+       "log"
+
+       "github.com/miniusercoder/bee2go/v3/belt"
+   )
+
+   func main() {
+       digest, err := belt.Hash([]byte("hello"))
+       if err != nil {
+           log.Fatal(err)
+       }
+       fmt.Printf("belt-hash: %X\n", digest)
+   }
+   ```
+
+6. Запустите приложение обычной командой `go run` или `go build`.
+
+В BIGN методы `SignDigest` и `VerifyDigest` принимают готовый digest. Сообщение нужно хешировать отдельно; профильные методы также не выполняют скрытого хеширования.
+
+Другие примеры — в [`examples/`](examples/). Изменения прежнего API описаны в [руководстве по миграции на v3](docs/migration-v3.md), устройство пакетов — в [описании архитектуры](docs/architecture.md).
+
+## Стратегия тестирования
+
+В репозитории есть:
+
+- тесты с известными ответами (KAT) из векторов upstream `bee2`;
+- независимые C-генераторы фикстур и сравнение результатов Go API с оригинальной библиотекой;
+- round-trip тесты шифрования, обёртки ключей, контейнеров и разделения секрета;
+- тесты порчи данных, неверных подписей, паролей, сертификатов и порядка шагов;
+- проверки размеров, форматов, границ и владения состояниями;
+- интеграционные обмены Go ↔ C для BAKE и фиксированные C-транскрипты BAKE/BAuth;
+- проверки race, `cgocheck2`, ASan/UBSan и fuzz-тесты;
+- отдельные длительные проверки генерации параметров с `-tags slow`.
+
+Происхождение тестовых данных описано в [`testdata/upstream/`](testdata/upstream/).
+
+## CI
+
+Workflow GitHub Actions:
+
+- выполняет checkout репозитория с submodule;
+- собирает статическую библиотеку `bee2` и запускает её C-тесты;
+- проверяет Go 1.22 и актуальную стабильную версию Go;
+- запускает `go vet ./...`, Go-тесты, диагностические KAT и демонстрационное приложение;
+- отдельно проверяет race, `cgocheck2` и ASan/UBSan.
+
+При ручном запуске workflow и публикации тегов `v3.*` дополнительно выполняются длительные проверки и fuzz-прогоны.
+
+См. [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Порядок выпуска версий и политика `legacy` описаны в [документе о релизах](docs/releases.md).
+
+## Замечания по безопасности
+
+- Объекты с нативным C-состоянием требуют `Close()`. Используйте `defer state.Close()` после успешного создания объекта.
+- Обычные состояния не предназначены для одновременного использования из нескольких goroutine. Независимые экземпляры могут работать параллельно; общий RNG синхронизирован внутри библиотеки.
+- `nil` вместо источника энтропии означает использование `crypto/rand.Reader`. Переданный `io.Reader` служит источником seed, а не точным потоком байтов для C-алгоритма.
+- Не повторяйте пару ключ/IV. Для потокового расшифрования DWP/CHE задавайте лимит входных данных; открытый текст выдаётся после проверки подлинности.
+- Доли BELS не аутентифицированы. Связь доли с параметрами сохраняется в Go API, но не заменяет проверку подлинности её содержимого.
+- Не используйте демонстрационные ключи из примеров в production. Успешный запуск диагностических KAT не является сертификацией.
+
+## Лицензия
+
+Проект распространяется по лицензии, указанной в [`LICENCE`](LICENCE).
