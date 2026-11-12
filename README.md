@@ -1,168 +1,50 @@
-# bee2go
+# bee2go v3
 
-Go-обертки для [bee2](https://github.com/agievich/bee2) — C-реализации белорусских криптографических стандартов.
+Go bindings for [bee2](https://github.com/agievich/bee2), a C implementation of cryptographic algorithms. The v3 module path is `github.com/miniusercoder/bee2go/v3`; algorithms live in family packages such as `belt`, `bash`, `bign`, `bake`, `bels`, `botp`, `bpki`, `brng`, `btok`, `dstu`, `g12s`, `pfok`, and `stb99`. `rng` provides access to the bee2 generator and entropy diagnostics; `selftest` runs selected diagnostic vectors.
 
-Пакет предоставляет высокоуровневые обертки для:
-- `bash`: хеш и псевдослучайный генератор
-- `belt`: хеш, блочные режимы, MAC, AEAD, HMAC, PBKDF2 и обертка ключей
-- `bign`: параметры, генерация ключей, DH, подписи, транспорт ключей и подписи на основе идентичности
-- `bake`: аутентифицированная выработка ключа BSTS
-- `brng`: детерминированные генераторы случайных данных
-- `rng`: источники энтропии, генератор случайных чисел и статистические тесты FIPS
+**Release status:** v3 is under integration and has not been published. See [algorithm coverage](docs/algorithm-coverage.md) and [release status](docs/releases.md) for remaining verification, including BAuth interoperability and the tracked backend patch. Do not treat the current tree as a completed release.
 
-## Требования
+## Build from source
 
-- Go 1.22+
-- Тулчейн C-компилятора
-- CMake
-- Исходники `bee2` доступны как git submodule в `./bee2`
+Linux amd64 with CGo is the initial verified environment. Install Go 1.22 or newer, a C compiler, CMake, Git, and the `patch` utility. Build the exact bee2 version pinned by the repository gitlink:
 
-## Быстрый старт
-
-### 1. Клонирование
-
-```bash
+```sh
 git clone --recurse-submodules https://github.com/miniusercoder/bee2go.git
 cd bee2go
-```
-
-Если репозиторий уже был клонирован без submodule:
-
-```bash
 git submodule update --init --recursive
-```
-
-### 2. Установил-запустил (одной командой)
-
-```bash
-make setup
-make run
-```
-
-Это:
-- подтянет submodule,
-- соберет статическую библиотеку `bee2`,
-- запустит демонстрационное приложение `cmd/demo`.
-
-### 3. Запуск тестов
-
-```bash
-make test
-```
-
-### 4. Ручной режим (без Makefile)
-
-Сборка статической библиотеки bee2:
-
-```bash
 bash scripts/build_bee2.sh
+go test ./...
 ```
 
-Запуск тестов:
+The build script checks that the bee2 checkout matches the gitlink and has no tracked changes, extracts it into a generated source directory, applies the [tracked backend patch](patches/README.md), and builds the static library and upstream tests under `build/configs/`; `build/bee2` points to the selected configuration. `go get` alone does not compile this native library. For local consumers, a Go workspace can include this checkout after its native build. Do not update the submodule independently of the pinned gitlink.
 
-```bash
-go test ./... -v
-```
+Run `make test-c` for the upstream C test suite, and `go run ./cmd/selftest` for the selected diagnostics. Passing diagnostics is not certification. `make test` and `go test ./...` run the Go suite; additional race, fuzz, slow, sanitizer, and integration checks are tracked in the coverage and release documents.
 
-## Установка
-
-Текущий поддерживаемый формат установки: работа из исходников репозитория с локальной сборкой `bee2`.
-
-Используйте шаги из раздела «Быстрый старт»:
-- `make setup`
-- `make run`
-- `make test`
-
-## Команды Makefile
-
-- `make setup` — подготовить проект к работе
-- `make run` — запустить demo (`cmd/demo`)
-- `make test` — запустить все тесты
-- `make clean` — удалить артефакты сборки `bee2/build`
-
-## Использование
-
-### Рекомендуемый UX для сторонних разработчиков: Go Workspace (`go work`)
-
-Этот вариант не требует правок `go.mod` вашего приложения и удобен для локальной разработки.
-
-1. Разместите ваш проект и `bee2go` рядом:
-
-```text
-workspace/
-  my-app/
-  bee2go/
-```
-
-2. Подготовьте `bee2go`:
-
-```bash
-cd bee2go
-make setup
-```
-
-3. Создайте workspace из каталога приложения:
-
-```bash
-cd ../my-app
-go work init . ../bee2go
-```
-
-4. Добавьте импорт в коде приложения:
-
-```go
-import "github.com/miniusercoder/bee2go"
-```
-
-5. Минимальный пример использования (belt-hash):
+## Hash and sign a digest
 
 ```go
 package main
 
 import (
-	"fmt"
-	"log"
+    "fmt"
+    "log"
 
-	"github.com/miniusercoder/bee2go"
+    "github.com/miniusercoder/bee2go/v3/belt"
+    "github.com/miniusercoder/bee2go/v3/bign"
 )
 
 func main() {
-	digest, err := bee2go.BeltHash([]byte("hello"))
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("belt-hash: %X\n", digest)
+    digest, err := belt.Hash([]byte("hello"))
+    if err != nil { log.Fatal(err) }
+    private, public, err := bign.Profile128.GenerateKey(nil)
+    if err != nil { log.Fatal(err) }
+    signature, err := bign.Profile128.SignDigestDeterministic(digest, private, nil)
+    if err != nil { log.Fatal(err) }
+    if err := bign.Profile128.VerifyDigest(digest, signature, public); err != nil { log.Fatal(err) }
+    fmt.Println("signature verified")
 }
 ```
 
-6. Запустите приложение обычной командой `go run` или `go build`.
+BIGN signing consumes an already computed digest; it does not hash a message. A nil entropy reader uses `crypto/rand.Reader` as a seed source. For streaming hashes and other stateful objects, call `Close` when finished. Objects require caller synchronization. DWP/CHE streaming decryption buffers input and releases plaintext only after authentication; configure its input limit and use a fresh IV for every message. `bels` shares are not authenticated.
 
-## Стратегия тестирования
-
-В репозитории есть:
-- тесты с известными ответами (KAT), полученные из векторов upstream `bee2`
-- round-trip тесты для API шифрования/дешифрования и wrap/unwrap
-- тесты порчи данных и негативных сценариев для проверки аутентичности и подписей
-- тесты валидации аргументов: nil, размерные и форматные ограничения
-- интеграционные тесты для выработки ключа BSTS
-
-## CI
-
-Workflow GitHub Actions:
-- выполняет checkout репозитория с submodule
-- собирает статическую библиотеку `bee2`
-- запускает `go vet ./...`
-- запускает `make test`
-
-См. `.github/workflows/ci.yml`.
-
-## Замечания по безопасности
-
-- Большинство объектов-оберток хранят нативное C-состояние и небезопасны для конкурентного использования из нескольких goroutine.
-- Всегда вызывайте `Free()` для долгоживущих объектов, выделяющих память в C.
-- Для защищённой от удаления оптимизатором очистки изменяемого среза с секретными данными используйте `bee2go.MemWipe(secret)`. Очищается только текущая длина среза: функция не может удалить ранее созданные копии или данные за пределами `len(secret)`.
-- Не используйте демонстрационные ключи из примеров в production.
-
-## Лицензия
-
-Проект распространяется по лицензии, указанной в `LICENCE`.
+See [examples](examples/), [architecture](docs/architecture.md), and the [v3 migration guide](docs/migration-v3.md). The license is in [LICENCE](LICENCE).

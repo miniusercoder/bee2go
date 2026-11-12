@@ -1,0 +1,7 @@
+# Release and legacy policy
+
+The old module path and root API are preserved by the local `legacy` branch and `legacy-2026-11-12` snapshot created before v3 migration. The v3 line uses `github.com/miniusercoder/bee2go/v3`; it does not overwrite the legacy API. The local baseline build and self-tests were recorded before migration. Local refs and a passing baseline do not mean a remote branch, tag, or release has been published.
+
+The current v3 tree is under integration. No release candidate or v3 release should be announced until the pinned header matrix is reconciled, all pending capability and test gaps are resolved, the full Go and upstream C suites pass on the final tree, and race, CGo pointer, slow, fuzz, sanitizer and independent security review gates are complete. The tracked [BAuth patch](../patches/README.md) corrects a backend challenge-length defect. Go tests now cover all three levels and mutual-authentication settings; independent interoperability and final-tree verification remain pending. An independent native-boundary review was performed on the evolving tree; its fixes and the final integrated revision still need review and release-gate verification. A passing diagnostic self-test is not a certification.
+
+The intended publication order is a separately approved v3 release candidate, a clean source-build and external-consumer check for both v3 and legacy, and then a separately approved stable release. Publishing, pushing tags, and changing remote branches are not part of preparing this documentation.

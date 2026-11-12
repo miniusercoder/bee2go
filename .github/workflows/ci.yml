@@ -3,35 +3,84 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v3.*']
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   test:
-    name: Build and test
+    name: Go ${{ matrix.go }} and upstream C tests
     runs-on: ubuntu-latest
-
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ['1.22.x', stable]
     steps:
-      - name: Checkout (with submodule)
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: ${{ matrix.go }}
+      - run: sudo apt-get update && sudo apt-get install -y cmake make gcc patch
+      - run: make setup
+      - run: go vet ./...
+      - run: make test-c
+      - run: go test ./... -count=1
+      - run: go run ./cmd/selftest
+      - run: go run ./cmd/demo
 
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake make
+  race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: make setup
+      - run: go test -race ./... -count=1
 
-      - name: Prepare project
-        run: make setup
+  cgocheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: make setup
+      - run: go test ./... -count=1
+        env:
+          GOEXPERIMENT: cgocheck2
 
-      - name: go vet
-        run: go vet ./...
+  sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: bash scripts/test_sanitizers.sh
 
-      - name: Run tests
-        run: make test
+  release-checks:
+    if: startsWith(github.ref, 'refs/tags/v3.') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: make setup
+      - run: go test -tags slow ./... -count=1 -timeout=20m
+      - run: bash scripts/test_fuzz.sh
