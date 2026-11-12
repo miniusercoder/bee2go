@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [legacy]
   pull_request:
-    branches: [main]
+    branches: [legacy]
 
 jobs:
   test:
@@ -35,3 +35,6 @@ jobs:
 
       - name: Run tests
         run: make test
+
+      - name: Run legacy self-tests
+        run: go run ./cmd/selftest
