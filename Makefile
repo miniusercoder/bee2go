@@ -3,11 +3,13 @@ SHELL := /usr/bin/env bash
 .PHONY: help setup deps build-bee2 test test-c run clean
 
 help:
-	@echo "Available targets:"
-	@echo "  make setup      - init submodules and build bee2 static library"
-	@echo "  make test       - run full test suite"
-	@echo "  make run        - run demo application"
-	@echo "  make clean      - remove bee2 build artifacts"
+	@echo "Доступные команды:"
+	@echo "  make setup      - подготовить submodule и собрать bee2"
+	@echo "  make build-bee2 - собрать bee2"
+	@echo "  make test       - запустить Go-тесты"
+	@echo "  make test-c     - запустить C-тесты bee2"
+	@echo "  make run        - запустить демонстрационное приложение"
+	@echo "  make clean      - удалить результаты сборки"
 
 deps:
 	@command -v go >/dev/null || (echo "go not found" && exit 1)

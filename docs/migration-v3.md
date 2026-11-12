@@ -1,22 +1,23 @@
-# Migration to v3
+# Переход на v3
 
-The legacy source snapshot and branch retain `github.com/miniusercoder/bee2go` and its root API. v3 uses `github.com/miniusercoder/bee2go/v3` and family packages; the root no longer re-exports the legacy algorithm functions. Update imports and call sites together. Both lines require building the pinned bee2 source; a Go dependency download alone does not build the C archive.
+Ветка и снимок legacy сохраняют модуль `github.com/miniusercoder/bee2go` и прежний корневой API. В v3 используется `github.com/miniusercoder/bee2go/v3` и отдельные пакеты по семействам алгоритмов. Корневой пакет больше не экспортирует прежние функции алгоритмов. Импорты и места вызова нужно обновлять вместе. Для обеих веток требуется сборка закреплённых исходников bee2: загрузка Go-зависимости сама по себе не собирает C-библиотеку.
 
-| Legacy root API | v3 API / change |
+| Прежний корневой API | API v3 и изменения |
 |---|---|
 | `BeltHash`, `BeltHashN`, `BeltHashVerify`, `NewBeltHash` | `belt.Hash`, `HashN`, `HashVerify`, `NewHash` |
-| `BeltECBEncr/Decr`, CBC and CFB counterparts, `BeltCTR` | `belt.ECBEncrypt/Decrypt`, CBC/CFB counterparts, `belt.CTR`; streaming ECB/CBC requires a final fragment for ciphertext stealing |
-| `BeltMAC`, `BeltHMAC`, `BeltPBKDF2`, `BeltKRP`, `BeltKWPWrap/Unwrap`, `BeltDWPWrap/Unwrap`, `BeltCHEWrap/Unwrap` | Same family operations under `belt`, without the `Belt` prefix; streaming MAC and bounded authenticated streams are available |
-| `BashHash`, `NewBashHash`, `NewBashPrg` | `bash.Hash`, `NewHash`, `NewPRG`; PRG command starts and fragments are explicit |
-| `Bign*` keys, params, sign, DH, transport, identity | `bign` package methods; `SignDigest` and profile methods take **digests**, not messages. Hash explicitly first. |
-| `Bake*` sessions, KDF, SWU, DH | `bake` package; session `Key` replaces `StepG`, and `Run` uses a message transport |
-| `BrngCTRRand`, `BrngCTRRandInto`, `BrngHMACRand` | `brng.CTRRand`, `brng.CTRTransform`, `brng.HMACRand`; `Read` generates bytes, `Transform` uses the existing buffer as additional material |
-| `RngCreate/StepR/StepR2/Rekey/Close`, entropy and FIPS helpers | `rng.New` or `rng.NewWithSource` (requires 32 bytes), `rng.IsCreated`, owned `Generator` methods, `rng.ReadEntropy`, `TestSource`, `Health`, `Health2`, `TestFIPS1`–`TestFIPS4` |
-| `SelfTest*`, `CheckBee2SelfTests` | `selftest.Run`, `RunOne`, and individual diagnostic functions; diagnostics are not certification |
-| `Free` on native owners | Idempotent `Close() error`; defer it after successful construction |
-| `BakeDefaultRNG`, `BakeAcceptAllCertVal`, raw generator callbacks/pointers | No pointer replacement. Pass an `io.Reader` seed source and a typed validator; validate certificates according to the application’s policy. |
-| `BeltH` and native-memory utilities | Internal test/implementation details; no public substitution table or native pointer API. Caller-owned secrets remain the caller’s responsibility. |
+| `BeltECBEncr/Decr`, соответствующие функции CBC и CFB, `BeltCTR` | `belt.ECBEncrypt/Decrypt`, соответствующие функции CBC/CFB, `belt.CTR`; для потоковых ECB/CBC нужно явно передавать финальный фрагмент с учётом ciphertext stealing |
+| `BeltMAC`, `BeltHMAC`, `BeltPBKDF2`, `BeltKRP`, `BeltKWPWrap/Unwrap`, `BeltDWPWrap/Unwrap`, `BeltCHEWrap/Unwrap` | Операции семейства в пакете `belt`, без префикса `Belt`; доступны потоковый MAC и потоки с аутентификацией и ограничением буфера |
+| `BashHash`, `NewBashHash`, `NewBashPrg` | `bash.Hash`, `NewHash`, `NewPRG`; начало команды PRG и обработка её фрагментов задаются явно |
+| Операции `Bign*` с ключами, параметрами, подписями, DH, транспортом ключей и идентичностями | Методы пакета `bign`; `SignDigest` и профильные методы принимают **digest**, а не сообщение. Сообщение нужно хешировать заранее. |
+| Сеансы `Bake*`, KDF, SWU, DH | Пакет `bake`; метод сеанса `Key` заменяет `StepG`, а `Run` работает с транспортом отдельных сообщений |
+| `BrngCTRRand`, `BrngCTRRandInto`, `BrngHMACRand` | `brng.CTRRand`, `brng.CTRTransform`, `brng.HMACRand`; `Read` генерирует байты, а `Transform` использует содержимое буфера как дополнительный вход |
+| `RngCreate/StepR/StepR2/Rekey/Close`, работа с энтропией и проверки FIPS | `rng.New` или `rng.NewWithSource` (требует 32 байта), `rng.IsCreated`, методы объекта `Generator`, `rng.ReadEntropy`, `TestSource`, `Health`, `Health2`, `TestFIPS1`–`TestFIPS4` |
+| `SelfTest*`, `CheckBee2SelfTests` | `selftest.Run`, `RunOne` и отдельные диагностические функции |
+| `Free` у владельцев нативного состояния | Идемпотентный `Close() error`; после успешного создания объекта освобождайте его через `defer` |
+| `BakeDefaultRNG`, `BakeAcceptAllCertVal`, сырые указатели и обратные вызовы генератора | Указатели заменены источником затравки `io.Reader` и типизированным валидатором. Проверка сертификатов должна соответствовать политике приложения. |
+| `BeltH` и утилиты нативной памяти | Внутренние детали реализации и тестов; публичной таблицы подстановок и API сырых указателей нет. За секреты в срезах вызывающего кода отвечает их владелец. |
 
-Randomized operations accept an `io.Reader`; nil means `crypto/rand.Reader`. The reader seeds an operation-owned native generator and is not an exact native RNG transcript. Methods returning errors report `ErrClosed` after `Close`; standard interfaces without an error return panic on closed state. Stateful objects are not safe for simultaneous use without caller synchronization. For BIGN parameter generation, supply an `OrderCalculator`; bee2 does not supply a general point-counting implementation.
+Операции со случайностью принимают `io.Reader`; `nil` означает `crypto/rand.Reader`. Читатель задаёт затравку отдельного нативного генератора операции, а не точную последовательность байтов C-генератора. После `Close` методы с возвращаемой ошибкой выдают `ErrClosed`; методы стандартных интерфейсов без возвращаемой ошибки вызывают `panic`. Объекты с состоянием требуют внешней синхронизации при одновременном использовании. Для генерации параметров BIGN нужен `OrderCalculator`: общего алгоритма подсчёта точек произвольной кривой bee2 не предоставляет.
 
-Only the explicitly implemented upstream subset is covered by these packages. See [algorithm coverage](algorithm-coverage.md) for per-symbol status and [releases](releases.md) before adopting an unreleased build.
+
+Инструкции сборки и подключения находятся в [README](../README.md), примеры — в [`examples/`](../examples/).

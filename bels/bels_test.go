@@ -207,7 +207,7 @@ func TestShareCVectors(t *testing.T) {
 }
 
 func TestParameterAndDeterministicShareCVectors(t *testing.T) {
-	raw, err := os.ReadFile("testdata/remaining_vectors.txt")
+	raw, err := os.ReadFile("testdata/parameters_and_shares.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
