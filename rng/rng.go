@@ -2,7 +2,10 @@
 // diagnostics. Diagnostics are not a certification of generated data.
 package rng
 
-import "github.com/miniusercoder/bee2go/v3/internal/native"
+import (
+	"github.com/miniusercoder/bee2go/v3/internal/native"
+	"io"
+)
 
 type Generator struct{ n *native.RNG }
 
@@ -30,3 +33,17 @@ func TestFIPS1(b []byte) bool                          { return native.RNGFIPS(1
 func TestFIPS2(b []byte) bool                          { return native.RNGFIPS(2, b) }
 func TestFIPS3(b []byte) bool                          { return native.RNGFIPS(3, b) }
 func TestFIPS4(b []byte) bool                          { return native.RNGFIPS(4, b) }
+
+// NewWithSource adds a caller-supplied 32-byte entropy contribution to bee2's
+// standard sources. A short read fails before changing the global generator.
+// A nil source behaves like New.
+func NewWithSource(source io.Reader) (*Generator, error) {
+	n, e := native.NewRNGWithSource(source)
+	if e != nil {
+		return nil, e
+	}
+	return &Generator{n}, nil
+}
+
+// IsCreated reports whether any owned reference keeps bee2's generator alive.
+func IsCreated() bool { return native.RNGIsCreated() }

@@ -3,10 +3,20 @@ package native
 /*
 #include "bridge.h"
 #include <bee2/core/rng.h>
+static err_t bee2go_rng_source(size_t* read,void* out,size_t n,void* seed) {
+ if(n>32)return ERR_BAD_LENGTH;
+ memcpy(out,seed,n);*read=n;return ERR_OK;
+}
+static err_t bee2go_rng_create_seed(const octet seed[32]) {
+ octet copy[32];err_t rc;memcpy(copy,seed,32);
+ rc=rngCreate(bee2go_rng_source,copy);memWipe(copy,32);return rc;
+}
 */
 import "C"
 import (
+	"fmt"
 	bee2 "github.com/miniusercoder/bee2go/v3"
+	"io"
 	"strings"
 	"sync"
 	"unsafe"
@@ -101,3 +111,23 @@ func RNGFIPS(n int, b []byte) bool {
 	}
 	return false
 }
+
+// NewRNGWithSource reads an additional 32-byte entropy contribution before C.
+// The supplied reader is never retained by the native singleton.
+func NewRNGWithSource(source io.Reader) (*RNG, error) {
+	if source == nil {
+		return NewRNG()
+	}
+	var seed [32]byte
+	defer Wipe(seed[:])
+	if _, e := io.ReadFull(source, seed[:]); e != nil {
+		return nil, fmt.Errorf("%w: %w", bee2.ErrRandom, e)
+	}
+	rngMu.Lock()
+	defer rngMu.Unlock()
+	if e := codeErr("rng.createSource", C.bee2go_rng_create_seed(octets(seed[:]))); e != nil {
+		return nil, e
+	}
+	return &RNG{}, nil
+}
+func RNGIsCreated() bool { rngMu.Lock(); defer rngMu.Unlock(); return C.rngIsValid() != 0 }
