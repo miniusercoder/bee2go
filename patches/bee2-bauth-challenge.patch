@@ -1,0 +1,38 @@
+From: bee2go maintainers
+Subject: [PATCH] btok: consistently use the 16-byte terminal challenge
+
+TStep3 generates, hashes and transmits exactly 16 bytes of Rt at every
+security level. The public header specifies M2 = Tt[8] || Rt[16]. CTStep4
+must hash the same 16 bytes, rather than no/2 (24 or 32 for larger levels).
+Also correct both M2 buffer-size checks to match that documented layout.
+Reproduced by TestBAuthAllLevels on pinned 4341f7a (192/mutual ERR_AUTH).
+
+--- a/src/crypto/btok/btok_bauth.c
++++ b/src/crypto/btok/btok_bauth.c
+@@ -369,7 +369,7 @@
+ 		return ERR_BAD_INPUT;
+ 	n = s->ec->f->n, no = s->ec->f->no;
+ 	if (!memIsValid(in, 2 * no + no / 2 + 16) ||
+-		!memIsValid(out, (8u + s->settings->kcb) ? no / 2 : 0))
++		!memIsValid(out, 8u + (s->settings->kcb ? 16u : 0u)))
+ 		return ERR_BAD_INPUT;
+ 	// разметить стек
+ 	memSlice(s->stack,
+@@ -474,7 +474,7 @@
+ 	if (!memIsValid(s, sizeof(btok_bauth_ct_st)) || !ecIsOperable(s->ec))
+ 		return ERR_BAD_INPUT;
+ 	n = s->ec->f->n, no = s->ec->f->no;
+-	if (!memIsValid(in, (8u + s->settings->kcb) ? no / 2 : 0) ||
++	if (!memIsValid(in, 8u + (s->settings->kcb ? 16u : 0u)) ||
+ 		!memIsValid(out, s->settings->kcb ? (8u + no + s->cert->len) : 0))
+ 		return ERR_BAD_INPUT;
+ 	// разметить стек
+@@ -485,7 +485,7 @@
+ 	beltHashStart(stack);
+ 	beltHashStepH(s->R, no / 2, stack);
+ 	if (s->settings->kcb)
+-	beltHashStepH(in + 8, no / 2, stack);
++		beltHashStepH(in + 8, 16, stack);
+ 	if (s->settings->helloa)
+ 		beltHashStepH(s->settings->helloa, s->settings->helloa_len, stack);
+ 	if (s->settings->hellob)
