@@ -53,7 +53,11 @@ func peerBinary(t *testing.T) string {
 	_, file, _, _ := runtime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(file), "../.."))
 	out := filepath.Join(t.TempDir(), "bake-peer")
-	cmd := exec.Command("cc", "-std=c11", "-I"+filepath.Join(root, "bee2/include"), filepath.Join(root, "tests/integration/testdata/bake_peer.c"), filepath.Join(root, "build/bee2/src/libbee2_static.a"), "-lpthread", "-o", out)
+	compiler := os.Getenv("CC")
+	if compiler == "" {
+		compiler = "cc"
+	}
+	cmd := exec.Command(compiler, "-std=c11", "-I"+filepath.Join(root, "bee2/include"), filepath.Join(root, "tests/integration/testdata/bake_peer.c"), filepath.Join(root, "build/bee2/src/libbee2_static.a"), "-lpthread", "-o", out)
 	if os.Getenv("BEE2_TEST_SANITIZERS") == "1" {
 		cmd.Args = append(cmd.Args, "-fsanitize=address,undefined", "-fno-sanitize=signed-integer-overflow")
 	}

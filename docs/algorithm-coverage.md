@@ -93,8 +93,8 @@ BIGN profile dispatch uses the C bridge for the named profile and is verified ag
 |---|---|---|---|
 | `botpDT`, `botpCtrNext` | — | Internal truncation and counter helpers; OTP APIs own the algorithm/state. | excluded |
 | `botpHOTP_keep`, `botpTOTP_keep`, `botpOCRA_keep` | — | Native state/scratch sizing is internal. | excluded |
-| `botpHOTPStart`, `botpHOTPStepS`, `botpHOTPStepR`, `botpHOTPStepV`, `botpHOTPStepG`, `botpHOTPRand`, `botpHOTPVerify` | botp.NewHOTP, state methods, HOTPCode, VerifyHOTP | TestHOTPAndTOTP, TestVerificationAndTOTPState; TestCounterBoundaryAndClose, TestDigitLengths | tested |
-| `botpTOTPStart`, `botpTOTPStepR`, `botpTOTPStepV`, `botpTOTPRand`, `botpTOTPVerify` | botp.NewTOTP, state methods, TOTPCode, VerifyTOTP | TestHOTPAndTOTP, TestVerificationAndTOTPState; TestCounterBoundaryAndClose, TestDigitLengths; TestNegativeTimeCVectors covers signed times and TIME_ERR on Linux amd64 | tested |
+| `botpHOTPStart`, `botpHOTPStepS`, `botpHOTPStepR`, `botpHOTPStepV`, `botpHOTPStepG`, `botpHOTPRand`, `botpHOTPVerify` | botp.NewHOTP, state methods, HOTPCode, VerifyHOTP | TestHOTPAndTOTP, TestOneShotOTPRejectsEmbeddedNUL and TestOneShotOTPRejectsNULAtEveryPosition; TestVerificationAndTOTPState; TestCounterBoundaryAndClose, TestDigitLengths | tested |
+| `botpTOTPStart`, `botpTOTPStepR`, `botpTOTPStepV`, `botpTOTPRand`, `botpTOTPVerify` | botp.NewTOTP, state methods, TOTPCode, VerifyTOTP | TestHOTPAndTOTP, TestOneShotOTPRejectsEmbeddedNUL and TestOneShotOTPRejectsNULAtEveryPosition; TestVerificationAndTOTPState; TestCounterBoundaryAndClose, TestDigitLengths; TestNegativeTimeCVectors covers signed times and TIME_ERR on Linux amd64 | tested |
 | `botpOCRAStart`, `botpOCRAStepS`, `botpOCRAStepR`, `botpOCRAStepV`, `botpOCRAStepG`, `botpOCRARand`, `botpOCRAVerify` | botp.ParseSuite, NewOCRA, state methods, OCRACode, VerifyOCRA | TestOCRA, TestOCRAOneShot, TestSuiteFields, FuzzParseSuite; TestCounterBoundaryAndClose, TestDigitLengths; TestNegativeTimeCVectors covers signed times and TIME_ERR on Linux amd64 | tested |
 
 ## `bpki.h`

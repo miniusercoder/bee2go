@@ -243,6 +243,9 @@ func (t *TOTP) Verify(otp string, step int64) (bool, error) {
 	return C.botpTOTPStepV((*C.char)(unsafe.Pointer(&b[0])), C.tm_time_t(step), t.s.ptr) != 0, nil
 }
 func VerifyHOTP(otp string, key []byte, ctr [8]byte) (bool, error) {
+	if e := otpFormat(otp); e != nil {
+		return false, e
+	}
 	if len(otp) < 6 || len(otp) > 8 {
 		return false, nil
 	}
@@ -254,6 +257,9 @@ func VerifyHOTP(otp string, key []byte, ctr [8]byte) (bool, error) {
 	return code == 0, codeErr("HOTP verify", code)
 }
 func VerifyTOTP(otp string, key []byte, step int64) (bool, error) {
+	if e := otpFormat(otp); e != nil {
+		return false, e
+	}
 	if !validOTPTime(step) {
 		return false, invalid("TOTP")
 	}
@@ -286,6 +292,9 @@ func (o *OCRA) VerifyOneShot(otp, suite string, key []byte, q string, ctr [8]byt
 	if e := o.check(q, step); e != nil {
 		return false, e
 	}
+	if e := otpFormat(otp); e != nil {
+		return false, e
+	}
 	if !o.hasTime {
 		step = 0
 	}
@@ -299,4 +308,15 @@ func (o *OCRA) VerifyOneShot(otp, suite string, key []byte, q string, ctr [8]byt
 		return false, nil
 	}
 	return code == 0, codeErr("OCRA verify", code)
+}
+
+// otpFormat rejects bytes which C string APIs could truncate or interpret as
+// non-decimal input. Password mismatch remains a separate false,nil result.
+func otpFormat(otp string) error {
+	for i := range otp {
+		if otp[i] < '0' || otp[i] > '9' {
+			return invalid("OTP format")
+		}
+	}
+	return nil
 }

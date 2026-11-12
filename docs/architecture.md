@@ -9,3 +9,5 @@ Randomized operations accept an `io.Reader` used as a 64-byte seed source, defau
 BELT ECB/CBC stream finalization preserves ciphertext stealing. DWP/CHE and BTOK secure messaging withhold plaintext on authentication failure. The BELT authenticated stream bounds buffered payload and associated data before allocation; refresh requires a fresh IV. BELS shares do not authenticate the recovered secret. BIGN and its profiles sign explicit digests and fixed profiles select their own OID.
 
 The legacy staging implementation has been removed after its consumers migrated. The matrix lists implemented paths and their remaining verification work. [Release status](releases.md) records integration gates.
+
+BELS Share values own copies of their common/member association. Export Bytes and Parameters together; import through NewShare or NewStandardShare. Recover rejects swapped associations. The parameter association is metadata, not cryptographic authentication of an imported share value.

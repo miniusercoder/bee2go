@@ -1,4 +1,4 @@
-// Package botp implements the Bee2 HOTP and TOTP algorithms.
+// Package botp implements the Bee2 HOTP, TOTP and OCRA algorithms.
 package botp
 
 import "github.com/miniusercoder/bee2go/v3/internal/native"

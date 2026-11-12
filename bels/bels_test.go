@@ -149,8 +149,8 @@ func TestUpstreamRecoveryVector(t *testing.T) {
 	shares := make([]Share, 5)
 	members := make([]Params, 5)
 	for i := range shares {
-		shares[i] = Share(raw[i*16 : (i+1)*16])
 		members[i], _ = Standard(16, i+1)
+		shares[i], _ = NewShare(raw[i*16:(i+1)*16], common, members[i])
 	}
 	got, e := Recover([]Share{shares[0], shares[2], shares[4]}, common, []Params{members[0], members[2], members[4]}, 3)
 	if e != nil || !bytes.Equal(got, secret) {
@@ -185,7 +185,7 @@ func TestShareCVectors(t *testing.T) {
 		}
 		var combined []byte
 		for _, s := range shares {
-			combined = append(combined, s...)
+			combined = append(combined, s.Bytes()...)
 		}
 		want, _ := hex.DecodeString(vectors[2*i])
 		if !bytes.Equal(combined, want) {
@@ -197,7 +197,7 @@ func TestShareCVectors(t *testing.T) {
 		}
 		combined = nil
 		for _, s := range standard {
-			combined = append(combined, s...)
+			combined = append(combined, s.Bytes()...)
 		}
 		want, _ = hex.DecodeString(vectors[2*i+1])
 		if !bytes.Equal(combined, want) {
@@ -254,7 +254,7 @@ func TestParameterAndDeterministicShareCVectors(t *testing.T) {
 		}
 		var gotShares []byte
 		for _, share := range shares {
-			gotShares = append(gotShares, share...)
+			gotShares = append(gotShares, share.Bytes()...)
 		}
 		if !bytes.Equal(gotShares, expectedShares) {
 			t.Fatalf("ShareDeterministic(%d): %x", length, gotShares)
