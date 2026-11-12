@@ -1,8 +1,8 @@
 package bee2go
 
 /*
-#cgo CFLAGS: -I${SRCDIR}/bee2/include
-#cgo LDFLAGS: -L${SRCDIR}/bee2/build/src -lbee2_static
+#cgo CFLAGS: -I${SRCDIR}/../../bee2/include
+#cgo LDFLAGS: -L${SRCDIR}/../../build/bee2/src -lbee2_static
 #include <stdint.h>
 #include <stdlib.h>
 #include "bee2/core/mem.h"

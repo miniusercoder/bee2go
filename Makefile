@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: help setup deps build-bee2 test run clean
+.PHONY: help setup deps build-bee2 test test-c run clean
 
 help:
 	@echo "Available targets:"
@@ -21,6 +21,9 @@ setup: deps
 build-bee2:
 	bash scripts/build_bee2.sh
 
+test-c: build-bee2
+	ctest --test-dir build/bee2 --output-on-failure --no-tests=error
+
 test: build-bee2
 	go test ./... -v -count=1
 
@@ -28,4 +31,4 @@ run: build-bee2
 	go run ./cmd/demo
 
 clean:
-	rm -rf bee2/build
+	rm -rf build

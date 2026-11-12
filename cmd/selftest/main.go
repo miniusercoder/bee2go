@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/miniusercoder/bee2go"
+	bee2go "github.com/miniusercoder/bee2go/v3/internal/staging"
 )
 
 func main() {
